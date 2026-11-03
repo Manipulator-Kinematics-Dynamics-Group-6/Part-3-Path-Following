@@ -60,6 +60,19 @@ simulated_gripper = GRIPPER_OPEN
 
 
 # ==========================================
+# POSITION FEEDBACK SETTINGS
+# ==========================================
+
+GRIPPER_POSITION_TOL = 3.0       # Degrees
+GRIPPER_POSITION_TIMEOUT = 5.0   # Seconds
+GRIPPER_FEEDBACK_INTERVAL = 0.05
+
+JOINT_POSITION_TOL = 3.0      # Degrees
+JOINT_POSITION_TIMEOUT = 5.0  # Seconds
+JOINT_FEEDBACK_INTERVAL = 0.05
+
+
+# ==========================================
 # HARDWARE CONNECTION
 # ==========================================
 
@@ -73,6 +86,112 @@ if not TEST:
 # ==========================================
 # JOINT CONTROL
 # ==========================================
+
+# Waits until all five joints reach their desired positions.
+def wait_for_joints(target_angles, visualizer=None):
+
+    target_angles = np.asarray(
+        target_angles,
+        dtype=float
+    ).flatten()
+
+    if target_angles.size != 5:
+        raise ValueError(
+            "Target must contain exactly 5 joint angles."
+        )
+
+    start_time = time.monotonic()
+
+    while True:
+
+        # ==================================
+        # READ CURRENT JOINT POSITIONS
+        # ==================================
+
+        current_angles = np.asarray(
+            get_joint_angles(),
+            dtype=float
+        )
+
+        if current_angles.shape != (5,):
+            raise RuntimeError(
+                "Invalid joint feedback received."
+            )
+
+        if not np.all(np.isfinite(current_angles)):
+            raise RuntimeError(
+                "Joint feedback contains invalid values."
+            )
+
+        # ==================================
+        # CALCULATE POSITION ERROR
+        # ==================================
+
+        error = np.abs(
+            target_angles - current_angles
+        )
+
+        # Check all five joints
+        reached = np.all(
+            error <= JOINT_POSITION_TOL
+        )
+
+        if reached:
+
+            print(
+                "All joints reached their target positions."
+            )
+
+            print(
+                f"Actual joint positions: {current_angles}"
+            )
+
+            print(
+                f"Joint position errors: {error}"
+            )
+
+            return True
+
+        # ==================================
+        # CHECK TIMEOUT
+        # ==================================
+
+        elapsed = (
+            time.monotonic() - start_time
+        )
+
+        if elapsed >= JOINT_POSITION_TIMEOUT:
+
+            print(
+                "Joint position timeout!"
+            )
+
+            print(
+                f"Target positions: {target_angles}"
+            )
+
+            print(
+                f"Actual positions: {current_angles}"
+            )
+
+            print(
+                f"Position errors: {error}"
+            )
+
+            return False
+
+        # ==================================
+        # PROCESS VISUALIZATION EVENTS
+        # ==================================
+
+        if visualizer is not None:
+
+            visualizer.process_events()
+
+        time.sleep(
+            JOINT_FEEDBACK_INTERVAL
+        )
+
 
 # Sends desired joint angles to the simulated or physical robot.
 def command_robot(joint_angles, gripper_angle, movement_time=2500):
@@ -140,51 +259,76 @@ def get_joint_angles(desired=None):
 # GRIPPER CONTROL
 # ==========================================
 
-# Commands the gripper and waits for the movement to complete.
+# Waits until the gripper reaches its target or times out.
+def wait_for_gripper(target_angle, visualizer=None):
+
+    start_time = time.monotonic()
+
+    while True:
+
+        current_angle = get_gripper_angle()
+
+        error = abs(target_angle - current_angle)
+
+        if error <= GRIPPER_POSITION_TOL:
+
+            print(
+                f"Gripper reached target: "
+                f"{current_angle:.1f} deg"
+            )
+
+            return True
+
+        if time.monotonic() - start_time >= GRIPPER_POSITION_TIMEOUT:
+
+            print(
+                f"Gripper timeout! "
+                f"Target: {target_angle:.1f}, "
+                f"Actual: {current_angle:.1f}"
+            )
+
+            return False
+
+        if visualizer is not None:
+
+            visualizer.process_events()
+
+        time.sleep(GRIPPER_FEEDBACK_INTERVAL)
+
+# Commands the gripper and waits for position feedback.
 def command_gripper(angle, movement_time=1000, visualizer=None):
 
     global simulated_gripper
 
     if not 0 <= angle <= 180:
+
         raise ValueError(
             "Gripper angle must be between 0 and 180."
         )
 
     if TEST:
+
         simulated_gripper = float(angle)
 
-        if angle >= GRIPPER_CLOSED:
-            print("Gripper closed")
-
-        elif angle <= GRIPPER_OPEN:
-            print("Gripper opened")
-
     else:
+
         arm.Arm_serial_servo_write(
             GRIPPER_ID,
             angle,
             movement_time
         )
 
-    # ==================================
-    # WAIT FOR GRIPPER
-    # ==================================
-
-    wait_time = max(
-        GRIPPER_WAIT,
-        movement_time / 1000
+    # Wait for the target position
+    reached = wait_for_gripper(
+        angle,
+        visualizer
     )
 
-    if visualizer is not None:
-        end_time = time.monotonic() + wait_time
+    if not reached:
 
-        while time.monotonic() < end_time:
-            visualizer.process_events()
-            time.sleep(0.01)
-
-    else:
-        time.sleep(wait_time)
-
+        raise TimeoutError(
+            "Gripper failed to reach its target."
+        )
 
 # Returns the current gripper servo angle.
 def get_gripper_angle():
@@ -232,7 +376,6 @@ def execute_trajectory(gripper_state, visualizer=None):
     paused_duration = 0.0
 
     try:
-
         for ii in range(kinematics.N):
 
             # ==================================
@@ -318,22 +461,49 @@ def execute_trajectory(gripper_state, visualizer=None):
                 f"Time: {ii * dt:.2f}s"
             )
 
-        print("Trajectory completed!")
+        # ==================================
+        # VERIFY FINAL JOINT POSITIONS
+        # ==================================
 
-    except KeyboardInterrupt:
+        # Get final desired configuration
+        target_angles = kinematics.q[:, -1].copy()
 
         print(
-            "\nTrajectory interrupted by user."
+            "Trajectory commands completed. "
+            "Verifying final joint positions..."
         )
 
+        reached = wait_for_joints(
+            target_angles,
+            visualizer
+        )
+
+        if not reached:
+
+            raise TimeoutError(
+                "Robot failed to reach the final "
+                "joint configuration."
+            )
+
+        print(
+            "Trajectory completed successfully!"
+        )
+        
+    except KeyboardInterrupt:
+        print("\nTrajectory interrupted by user.")
         raise
 
     finally:
-
         print("Controller finished.")
-        
+
+    
+
+# ==========================================
+# MAIN - CONTROLLER TEST
+# ==========================================
 
 if __name__ == "__main__":
+
     # ==========================================
     # TEST CONFIGURATIONS
     # ==========================================
@@ -348,49 +518,252 @@ if __name__ == "__main__":
         dtype=float
     )
 
+    print("\n==========================================")
+    print("DOFBOT CONTROLLER TEST")
+    print("==========================================")
+
+    # Prevent accidental hardware movement
+    assert TEST, (
+        "Controller tests require TEST = True."
+    )
 
     # ==========================================
-    # INITIAL ROBOT STATE
+    # RESET SIMULATED ROBOT STATE
     # ==========================================
 
-    print("Initial joint angles:")
-    print(get_joint_angles())
+    simulated_q = qstart.copy()
+    simulated_gripper = GRIPPER_OPEN
 
-    print("Initial gripper angle:")
-    print(get_gripper_angle())
+    # ==========================================
+    # TEST 1 - INITIAL ROBOT STATE
+    # ==========================================
+
+    print("\nTEST 1: Initial robot state")
+
+    actual_q = get_joint_angles()
+    actual_gripper = get_gripper_angle()
+
+    assert np.allclose(
+        actual_q,
+        qstart
+    ), (
+        f"Initial joint positions incorrect: {actual_q}"
+    )
+
+    assert np.isclose(
+        actual_gripper,
+        GRIPPER_OPEN
+    ), (
+        f"Initial gripper angle incorrect: {actual_gripper}"
+    )
+
+    print("PASS: Initial robot state")
 
 
     # ==========================================
-    # COMMAND ROBOT
+    # TEST 2 - JOINT COMMAND
     # ==========================================
+
+    print("\nTEST 2: Joint command")
 
     command_robot(
         qend,
         GRIPPER_OPEN
     )
 
-    print("Updated joint angles:")
-    print(get_joint_angles())
+    actual_q = get_joint_angles()
+
+    assert np.allclose(
+        actual_q,
+        qend
+    ), (
+        f"Joint command failed. "
+        f"Expected: {qend}, Actual: {actual_q}"
+    )
+
+    print("PASS: Joint command")
 
 
     # ==========================================
-    # FORWARD KINEMATICS
+    # TEST 3 - JOINT POSITION FEEDBACK
     # ==========================================
 
-    Rot, Pot = kinematics.fwdkin_Dofbot(get_joint_angles())
+    print("\nTEST 3: Joint position feedback")
 
-    print("End effector position:")
-    print(Pot)
+    reached = wait_for_joints(
+        qend
+    )
 
-    print("End effector rotation matrix:")
-    print(Rot)
+    assert reached, (
+        "Joint position verification failed."
+    )
+
+    print("PASS: Joint position feedback")
 
 
     # ==========================================
-    # GRIPPER TEST
+    # TEST 4 - TRAJECTORY GENERATION
     # ==========================================
 
-    command_gripper(GRIPPER_CLOSED)
+    print("\nTEST 4: Trajectory generation")
 
-    print("Updated gripper angle:")
-    print(get_gripper_angle())
+    kinematics.generate_trajectory(
+        qstart,
+        qend
+    )
+
+    assert kinematics.q.shape == (
+        5,
+        kinematics.N
+    ), (
+        "Generated trajectory has incorrect dimensions."
+    )
+
+    assert np.allclose(
+        kinematics.q[:, 0],
+        qstart
+    ), (
+        "Trajectory does not start at qstart."
+    )
+
+    assert np.allclose(
+        kinematics.q[:, -1],
+        qend
+    ), (
+        "Trajectory does not end at qend."
+    )
+
+    assert np.all(
+        np.isfinite(kinematics.q)
+    ), (
+        "Trajectory contains invalid numerical values."
+    )
+
+    print("PASS: Trajectory generation")
+
+
+    # ==========================================
+    # TEST 5 - TRAJECTORY EXECUTION
+    # ==========================================
+
+    print("\nTEST 5: Trajectory execution")
+
+    # Reset simulated robot to initial configuration
+    simulated_q = qstart.copy()
+
+    execute_trajectory(
+        GRIPPER_OPEN
+    )
+
+    actual_q = get_joint_angles()
+
+    joint_error = np.abs(
+        qend - actual_q
+    )
+
+    assert np.all(
+        joint_error <= JOINT_POSITION_TOL
+    ), (
+        f"Trajectory execution failed. "
+        f"Joint errors: {joint_error}"
+    )
+
+    print("PASS: Trajectory execution")
+
+
+    # ==========================================
+    # TEST 6 - FORWARD KINEMATICS
+    # ==========================================
+
+    print("\nTEST 6: Forward kinematics")
+
+    Rot, Pot = kinematics.fwdkin_Dofbot(
+        actual_q
+    )
+
+    assert Rot.shape == (3, 3), (
+        "Rotation matrix has incorrect dimensions."
+    )
+
+    assert Pot.shape == (3,), (
+        "End-effector position has incorrect dimensions."
+    )
+
+    assert np.allclose(
+        Rot.T @ Rot,
+        np.eye(3),
+        atol=1e-6
+    ), (
+        "Rotation matrix is not orthogonal."
+    )
+
+    assert np.isclose(
+        np.linalg.det(Rot),
+        1.0,
+        atol=1e-6
+    ), (
+        "Rotation matrix has invalid determinant."
+    )
+
+    assert np.all(
+        np.isfinite(Pot)
+    ), (
+        "End-effector position contains invalid values."
+    )
+
+    print("PASS: Forward kinematics")
+
+
+    # ==========================================
+    # TEST 7 - GRIPPER CLOSE
+    # ==========================================
+
+    print("\nTEST 7: Gripper close")
+
+    command_gripper(
+        GRIPPER_CLOSED
+    )
+
+    actual_gripper = get_gripper_angle()
+
+    assert abs(
+        GRIPPER_CLOSED - actual_gripper
+    ) <= GRIPPER_POSITION_TOL, (
+        f"Gripper failed to close. "
+        f"Expected: {GRIPPER_CLOSED}, "
+        f"Actual: {actual_gripper}"
+    )
+
+    print("PASS: Gripper close")
+
+
+    # ==========================================
+    # TEST 8 - GRIPPER OPEN
+    # ==========================================
+
+    print("\nTEST 8: Gripper open")
+
+    command_gripper(
+        GRIPPER_OPEN
+    )
+
+    actual_gripper = get_gripper_angle()
+
+    assert abs(
+        GRIPPER_OPEN - actual_gripper
+    ) <= GRIPPER_POSITION_TOL, (
+        f"Gripper failed to open. "
+        f"Expected: {GRIPPER_OPEN}, "
+        f"Actual: {actual_gripper}"
+    )
+
+    print("PASS: Gripper open")
+
+
+    # ==========================================
+    # TEST COMPLETE
+    # ==========================================
+
+    print("\n==========================================")
+    print("ALL CONTROLLER TESTS PASSED")
+    print("==========================================")

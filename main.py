@@ -161,12 +161,14 @@ def run_commands(visualizer=None):
                 # Command gripper only
                 if command_type == "GRAB":
                     controller.command_gripper(
-                        controller.GRIPPER_CLOSED
+                        controller.GRIPPER_CLOSED,
+                        visualizer=visualizer
                     )
 
-                else:
+                elif command_type == "DROP":
                     controller.command_gripper(
-                        controller.GRIPPER_OPEN
+                        controller.GRIPPER_OPEN,
+                        visualizer=visualizer
                     )
 
             # ==================================

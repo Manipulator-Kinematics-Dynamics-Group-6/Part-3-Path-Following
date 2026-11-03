@@ -440,17 +440,16 @@ def generate_trajectory(qstart, qend):
         )
 
 
+
 # ==========================================
-# MAIN
+# MAIN - KINEMATICS TEST
 # ==========================================
 
 if __name__ == "__main__":
 
-    import matplotlib.pyplot as plt
-
-    # ==================================
-    # TEST FORWARD KINEMATICS
-    # ==================================
+    # ==========================================
+    # TEST CONFIGURATIONS
+    # ==========================================
 
     qstart = np.array(
         [90, 90, 90, 90, 90],
@@ -462,142 +461,395 @@ if __name__ == "__main__":
         dtype=float
     )
 
-    Rot_desired, Pot_desired = (
-        fwdkin_Dofbot(qend)
-    )
+    test_configurations = [
+        np.array([90, 90, 90, 90, 90], dtype=float),
+        np.array([45, 120, 140, 100, 95], dtype=float),
+        np.array([120, 75, 110, 80, 90], dtype=float),
+        np.array([60, 100, 70, 130, 110], dtype=float)
+    ]
 
-    print("Desired end-effector position:")
-    print(Pot_desired)
+    print("\n==========================================")
+    print("DOFBOT KINEMATICS TEST")
+    print("==========================================")
 
-    print("Desired end-effector rotation:")
-    print(Rot_desired)
 
-    # ==================================
-    # TEST INVERSE KINEMATICS
-    # ==================================
+    # ==========================================
+    # TEST 1 - ROTATION MATRICES
+    # ==========================================
 
-    q_solutions = invkin_Dofbot(
-        Rot_desired,
-        Pot_desired,
-        qstart
-    )
+    print("\nTEST 1: Rotation matrices")
 
-    print("\nInverse kinematics solutions:")
+    for rotation_function in (rotx, roty, rotz):
 
-    if q_solutions.shape[1] == 0:
+        R = rotation_function(45)
 
-        print("No verified solutions found.")
-
-    else:
-
-        print(
-            np.round(q_solutions, 3)
+        assert R.shape == (3, 3), (
+            "Rotation matrix has incorrect dimensions."
         )
 
-        q_solution = q_solutions[:, 0]
-
-        Rot_check, Pot_check = (
-            fwdkin_Dofbot(q_solution)
+        assert np.allclose(
+            R.T @ R,
+            np.eye(3),
+            atol=1e-8
+        ), (
+            "Rotation matrix is not orthogonal."
         )
 
-        position_error = np.linalg.norm(
-            Pot_check - Pot_desired
+        assert np.isclose(
+            np.linalg.det(R),
+            1.0,
+            atol=1e-8
+        ), (
+            "Rotation matrix determinant is not +1."
         )
 
-        orientation_error = Rotation.from_matrix(
-            Rot_desired @ Rot_check.T
-        ).magnitude()
+    assert np.allclose(rotx(0), np.eye(3))
+    assert np.allclose(roty(0), np.eye(3))
+    assert np.allclose(rotz(0), np.eye(3))
 
-        print(
-            f"Position error: {position_error * 1000:.6f} mm"
+    print("PASS: Rotation matrices")
+
+
+    # ==========================================
+    # TEST 2 - FORWARD KINEMATICS
+    # ==========================================
+
+    print("\nTEST 2: Forward kinematics")
+
+    for qtest in test_configurations:
+
+        Rot_test, Pot_test = fwdkin_Dofbot(qtest)
+
+        assert Rot_test.shape == (3, 3), (
+            "Invalid end-effector rotation dimensions."
         )
 
-        print(
-            f"Orientation error: "
-            f"{np.rad2deg(orientation_error):.6f} deg"
+        assert Pot_test.shape == (3,), (
+            "Invalid end-effector position dimensions."
         )
 
-    # ==================================
-    # GENERATE JOINT TRAJECTORY
-    # ==================================
+        assert np.all(
+            np.isfinite(Rot_test)
+        ), (
+            "Rotation matrix contains invalid values."
+        )
+
+        assert np.all(
+            np.isfinite(Pot_test)
+        ), (
+            "Position vector contains invalid values."
+        )
+
+        assert np.allclose(
+            Rot_test.T @ Rot_test,
+            np.eye(3),
+            atol=1e-8
+        ), (
+            f"Invalid FK rotation for q = {qtest}"
+        )
+
+        assert np.isclose(
+            np.linalg.det(Rot_test),
+            1.0,
+            atol=1e-8
+        ), (
+            f"Invalid rotation determinant for q = {qtest}"
+        )
+
+    print("PASS: Forward kinematics")
+
+
+        # ==========================================
+    # TEST 3 - FORWARD KINEMATICS WITH POINTS
+    # ==========================================
+
+    print("\nTEST 3: Forward kinematics with points")
+
+    for qtest in test_configurations:
+
+        Rot_test, Pot_test, points = fwdkin_with_points(
+            qtest
+        )
+
+        # Verify joint position dimensions
+        assert points.shape == (7, 3), (
+            "Joint positions have incorrect dimensions."
+        )
+
+        # Verify base position
+        assert np.allclose(
+            points[0],
+            np.zeros(3)
+        ), (
+            f"Base position is incorrect for q = {qtest}"
+        )
+
+        # Verify end-effector position
+        assert np.allclose(
+            points[-1],
+            Pot_test
+        ), (
+            f"End-effector position mismatch for q = {qtest}"
+        )
+
+        # Calculate forward kinematics separately
+        Rot_check, Pot_check = fwdkin_Dofbot(
+            qtest
+        )
+
+        # Compare rotation matrices
+        assert np.allclose(
+            Rot_test,
+            Rot_check,
+            atol=1e-8
+        ), (
+            f"Rotation matrix mismatch for q = {qtest}"
+        )
+
+        # Compare end-effector positions
+        assert np.allclose(
+            Pot_test,
+            Pot_check,
+            atol=1e-8
+        ), (
+            f"Position mismatch for q = {qtest}"
+        )
+
+    print("PASS: Forward kinematics with points")
+    
+    
+    # ==========================================
+    # TEST 4 - TRAJECTORY GENERATION
+    # ==========================================
+
+    print("\nTEST 4: Trajectory generation")
 
     generate_trajectory(
         qstart,
         qend
     )
 
-    # ==================================
-    # PLOT JOINT POSITIONS
-    # ==================================
-
-    plt.figure()
-
-    plt.plot(
-        lam,
-        q.T,
-        linewidth=2
+    assert q.shape == (5, N), (
+        "Trajectory joint array has incorrect dimensions."
     )
 
-    plt.xlabel("Lambda")
-    plt.ylabel("Joint angles (degrees)")
-    plt.title("Joint Positions")
-
-    plt.legend([
-        "Joint 1",
-        "Joint 2",
-        "Joint 3",
-        "Joint 4",
-        "Joint 5"
-    ])
-
-    plt.grid()
-
-    # ==================================
-    # PLOT END EFFECTOR ORIENTATION
-    # ==================================
-
-    plt.figure()
-
-    plt.plot(
-        lam,
-        eulerot.T,
-        linewidth=2
+    assert Rot.shape == (3, 3, N), (
+        "Trajectory rotation array has incorrect dimensions."
     )
 
-    plt.xlabel("Lambda")
-    plt.ylabel("Rotation (degrees)")
-    plt.title("End-Effector Orientation")
-
-    plt.legend([
-        "Yaw",
-        "Pitch",
-        "Roll"
-    ])
-
-    plt.grid()
-
-    # ==================================
-    # PLOT END EFFECTOR POSITION
-    # ==================================
-
-    plt.figure()
-
-    plt.plot(
-        lam,
-        Pot.T,
-        linewidth=2
+    assert Pot.shape == (3, N), (
+        "Trajectory position array has incorrect dimensions."
     )
 
-    plt.xlabel("Lambda")
-    plt.ylabel("Position (meters)")
-    plt.title("End-Effector Position")
+    assert eulerot.shape == (3, N), (
+        "Euler orientation array has incorrect dimensions."
+    )
 
-    plt.legend([
-        "X",
-        "Y",
-        "Z"
-    ])
+    assert np.allclose(
+        q[:, 0],
+        qstart
+    ), (
+        "Trajectory does not start at qstart."
+    )
 
-    plt.grid()
+    assert np.allclose(
+        q[:, -1],
+        qend
+    ), (
+        "Trajectory does not end at qend."
+    )
 
-    plt.show()
+    for ii in range(N):
+
+        expected_q = (
+            qstart * (1 - lam[ii])
+            + qend * lam[ii]
+        )
+
+        assert np.allclose(
+            q[:, ii],
+            expected_q
+        ), (
+            f"Incorrect trajectory interpolation at frame {ii}."
+        )
+
+    print("PASS: Trajectory generation")
+
+
+    # ==========================================
+    # TEST 5 - TRAJECTORY FORWARD KINEMATICS
+    # ==========================================
+
+    print("\nTEST 5: Trajectory forward kinematics")
+
+    for ii in range(N):
+
+        Rot_check, Pot_check = fwdkin_Dofbot(
+            q[:, ii]
+        )
+
+        assert np.allclose(
+            Rot[:, :, ii],
+            Rot_check,
+            atol=1e-8
+        ), (
+            f"Incorrect trajectory rotation at frame {ii}."
+        )
+
+        assert np.allclose(
+            Pot[:, ii],
+            Pot_check,
+            atol=1e-8
+        ), (
+            f"Incorrect trajectory position at frame {ii}."
+        )
+
+    print("PASS: Trajectory forward kinematics")
+
+
+    # ==========================================
+    # TEST 6 - FK TO IK TO FK
+    # ==========================================
+
+    print("\nTEST 6: FK -> IK -> FK")
+
+    for qtest in test_configurations:
+
+        # Generate a guaranteed reachable pose
+        Rot_desired, Pot_desired = fwdkin_Dofbot(
+            qtest
+        )
+
+        # Recover joint configurations using IK
+        q_solutions = invkin_Dofbot(
+            Rot_desired,
+            Pot_desired,
+            qstart=qtest
+        )
+
+        assert q_solutions.shape[0] == 5, (
+            "IK returned an incorrect array shape."
+        )
+
+        assert q_solutions.shape[1] > 0, (
+            f"IK found no solution for q = {qtest}"
+        )
+
+        # Check each returned solution
+        for jj in range(q_solutions.shape[1]):
+
+            q_candidate = q_solutions[:, jj]
+
+            Rot_check, Pot_check = fwdkin_Dofbot(
+                q_candidate
+            )
+
+            position_error = np.linalg.norm(
+                Pot_check - Pot_desired
+            )
+
+            orientation_error = Rotation.from_matrix(
+                Rot_desired @ Rot_check.T
+            ).magnitude()
+
+            assert position_error <= POSITION_TOL, (
+                f"IK position error exceeded tolerance "
+                f"for q = {qtest}: {position_error:.6f} m"
+            )
+
+            assert orientation_error <= ORIENTATION_TOL, (
+                f"IK orientation error exceeded tolerance "
+                f"for q = {qtest}: "
+                f"{np.rad2deg(orientation_error):.6f} deg"
+            )
+
+        print(
+            f"PASS: q = {qtest}, "
+            f"solutions found = {q_solutions.shape[1]}"
+        )
+
+    print("PASS: FK -> IK -> FK")
+
+
+    # ==========================================
+    # TEST 7 - IK JOINT LIMITS
+    # ==========================================
+
+    print("\nTEST 7: IK joint limits")
+
+    Rot_desired, Pot_desired = fwdkin_Dofbot(
+        qend
+    )
+
+    q_solutions = invkin_Dofbot(
+        Rot_desired,
+        Pot_desired,
+        qstart=qstart
+    )
+
+    assert q_solutions.shape[1] > 0, (
+        "IK failed to find a known reachable target."
+    )
+
+    assert np.all(
+        q_solutions >= JOINT_MIN[:, None] - 1e-6
+    ), (
+        "IK returned angles below the minimum limits."
+    )
+
+    assert np.all(
+        q_solutions <= JOINT_MAX[:, None] + 1e-6
+    ), (
+        "IK returned angles above the maximum limits."
+    )
+
+    print("PASS: IK joint limits")
+
+
+    # ==========================================
+    # TEST 8 - INVALID INPUT HANDLING
+    # ==========================================
+
+    print("\nTEST 8: Invalid input handling")
+
+    try:
+
+        fwdkin_Dofbot([90, 90, 90])
+
+    except ValueError:
+
+        pass
+
+    else:
+
+        raise AssertionError(
+            "FK accepted an invalid number of joint angles."
+        )
+
+    try:
+
+        invkin_Dofbot(
+            np.zeros((3, 3)),
+            np.array([0.1, 0.1, 0.1])
+        )
+
+    except ValueError:
+
+        pass
+
+    else:
+
+        raise AssertionError(
+            "IK accepted an invalid rotation matrix."
+        )
+
+    print("PASS: Invalid input handling")
+
+
+    # ==========================================
+    # TEST COMPLETE
+    # ==========================================
+
+    print("\n==========================================")
+    print("ALL KINEMATICS TESTS PASSED")
+    print("==========================================")
