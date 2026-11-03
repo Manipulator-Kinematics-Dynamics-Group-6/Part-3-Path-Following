@@ -1,4 +1,3 @@
-
 import numpy as np
 from scipy.spatial.transform import Rotation
 import warnings
@@ -7,8 +6,8 @@ import warnings
 # INITIAL AND FINAL CONFIGURATIONS
 # ==========================================
 
-qstart = np.array([90, 90, 90, 90, 90], dtype=float)
-qend = np.array([90, 30, 45, 135, 110], dtype=float)
+# qstart = np.array([90, 90, 90, 90, 90], dtype=float)
+# qend = np.array([90, 30, 45, 135, 110], dtype=float)
 
 N = 100
 lam = np.linspace(0, 1, N)
@@ -129,7 +128,7 @@ Rot = np.zeros((3, 3, N))
 eulerot = np.zeros((3, N))
 Pot = np.zeros((3, N))
 
-def generate_trajectory():
+def generate_trajectory(qstart, qend):
 
     for ii in range(N):
 
@@ -154,11 +153,6 @@ def generate_trajectory():
             ).as_euler('ZYX', degrees=True)
 
         eulerot[:, ii] = (euler_angles + 180) % 360 - 180
-
-
-# IMPORTANT:
-# Generate the trajectory when this module is imported.
-generate_trajectory()
 
 
 # ==========================================
