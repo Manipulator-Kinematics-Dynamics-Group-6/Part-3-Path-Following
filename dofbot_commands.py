@@ -1,12 +1,25 @@
 # ==========================================
-# COMMAND SEQUENCES
+# DOFBOT COMMAND SEQUENCES
+# ==========================================
+#
+# Description:
+#     Defines predefined command sequences for the
+#     Yahboom DOFBOT robotic arm.
+#
+#     Commands include joint-space movements (MOVE_TO)
+#     and gripper operations (GRAB and DROP).
+#
+#     The active command sequence is selected using
+#     ACTIVE_SEQUENCE and executed by main.py.
+#
 # ==========================================
 
+
 PICK_AND_PLACE = [
-    ("MOVE_TO", [90, 60, 90, 120, 90]),
-    ("GRAB", [90, 60, 90, 120, 90]),
+    ("MOVE_TO", [45, 120, 140, 100, 95]),
+    ("GRAB", None),
     ("MOVE_TO", [90, 90, 90, 90, 90]),
-    ("DROP", [90, 90, 90, 90, 90])
+    ("DROP", None)
 ]
 
 
@@ -17,7 +30,7 @@ TEST_SEQUENCE = [
 
 
 # ==========================================
-# SELECT COMMAND SEQUENCE
+# SELECT ACTIVE COMMAND SEQUENCE
 # ==========================================
 
-ACTIVE_SEQUENCE = TEST_SEQUENCE
+ACTIVE_SEQUENCE = PICK_AND_PLACE

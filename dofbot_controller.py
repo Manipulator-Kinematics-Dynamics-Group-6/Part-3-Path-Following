@@ -1,8 +1,32 @@
+# ==========================================
+# DOFBOT ROBOT CONTROLLER
+# ==========================================
+#
+# Description:
+#     Handles trajectory execution, joint commands,
+#     gripper control, and robot state retrieval.
+#
+#     Supports both simulated and physical operation
+#     through the TEST flag.
+#
+#     TEST = True:
+#         Uses simulated joint and gripper states
+#         without requiring the Arm_Lib library.
+#
+#     TEST = False:
+#         Communicates with the physical DOFBOT
+#         through the Arm_Lib interface.
+#
+#     Also manages trajectory timing and simulation
+#     pause/resume functionality.
+#
+# ==========================================
+
 
 import numpy as np
 import time
 
-import dofbot_kinematics as robot
+import dofbot_kinematics as kinematics
 
 
 # ==========================================
@@ -48,6 +72,7 @@ if not TEST:
 # JOINT CONTROL
 # ==========================================
 
+# Sends desired joint angles to the simulated or physical robot.
 def command_robot(joint_angles, gripper_angle, movement_time=2500):
 
     global simulated_q, simulated_gripper
@@ -79,11 +104,7 @@ def command_robot(joint_angles, gripper_angle, movement_time=2500):
             movement_time
         )
 
-
-# ==========================================
-# READ JOINT POSITIONS
-# ==========================================
-
+# Reads the current joint angles from the simulation or hardware.
 def get_joint_angles(desired=None):
 
     if TEST:
@@ -117,6 +138,7 @@ def get_joint_angles(desired=None):
 # GRIPPER CONTROL
 # ==========================================
 
+# Opens or closes the gripper to a specified servo angle.
 def command_gripper(angle, movement_time=1000):
 
     global simulated_gripper
@@ -147,11 +169,7 @@ def command_gripper(angle, movement_time=1000):
             movement_time
         )
 
-
-# ==========================================
-# READ GRIPPER POSITION
-# ==========================================
-
+# Returns the current gripper servo angle.
 def get_gripper_angle():
 
     if TEST:
@@ -176,10 +194,12 @@ def get_gripper_angle():
 # EXECUTE TRAJECTORY
 # ==========================================
 
+# Executes the generated joint trajectory at fixed time intervals.
+# Supports pausing and resuming through the visualizer.
 def execute_trajectory(gripper_state, visualizer=None):
 
     # Time between trajectory samples
-    dt = TOTAL_TIME / (robot.N - 1)
+    dt = TOTAL_TIME / (kinematics.N - 1)
 
     # Servo movement duration in milliseconds
     movement_time = max(
@@ -188,7 +208,7 @@ def execute_trajectory(gripper_state, visualizer=None):
     )
 
     print("Starting DOFBOT trajectory...")
-    print(f"Trajectory points: {robot.N}")
+    print(f"Trajectory points: {kinematics.N}")
     print(f"Total movement time: {TOTAL_TIME} seconds")
 
     start_time = time.monotonic()
@@ -198,7 +218,7 @@ def execute_trajectory(gripper_state, visualizer=None):
 
     try:
 
-        for ii in range(robot.N):
+        for ii in range(kinematics.N):
 
             # ==================================
             # PROCESS VISUALIZER EVENTS
@@ -256,7 +276,7 @@ def execute_trajectory(gripper_state, visualizer=None):
             # COMMAND ROBOT
             # ==================================
 
-            desired_q = robot.q[:, ii].copy()
+            desired_q = kinematics.q[:, ii].copy()
 
             command_robot(
                 desired_q,
@@ -279,7 +299,7 @@ def execute_trajectory(gripper_state, visualizer=None):
             # ==================================
 
             print(
-                f"Frame {ii + 1}/{robot.N} | "
+                f"Frame {ii + 1}/{kinematics.N} | "
                 f"Time: {ii * dt:.2f}s"
             )
 
@@ -296,3 +316,66 @@ def execute_trajectory(gripper_state, visualizer=None):
     finally:
 
         print("Controller finished.")
+        
+
+if __name__ == "__main__":
+    # ==========================================
+    # TEST CONFIGURATIONS
+    # ==========================================
+
+    qstart = np.array(
+        [90, 90, 90, 90, 90],
+        dtype=float
+    )
+
+    qend = np.array(
+        [45, 120, 140, 100, 95],
+        dtype=float
+    )
+
+
+    # ==========================================
+    # INITIAL ROBOT STATE
+    # ==========================================
+
+    print("Initial joint angles:")
+    print(get_joint_angles())
+
+    print("Initial gripper angle:")
+    print(get_gripper_angle())
+
+
+    # ==========================================
+    # COMMAND ROBOT
+    # ==========================================
+
+    command_robot(
+        qend,
+        GRIPPER_OPEN
+    )
+
+    print("Updated joint angles:")
+    print(get_joint_angles())
+
+
+    # ==========================================
+    # FORWARD KINEMATICS
+    # ==========================================
+
+    Rot, Pot = kinematics.fwdkin_Dofbot(get_joint_angles())
+
+    print("End effector position:")
+    print(Pot)
+
+    print("End effector rotation matrix:")
+    print(Rot)
+
+
+    # ==========================================
+    # GRIPPER TEST
+    # ==========================================
+
+    command_gripper(GRIPPER_CLOSED)
+
+    print("Updated gripper angle:")
+    print(get_gripper_angle())

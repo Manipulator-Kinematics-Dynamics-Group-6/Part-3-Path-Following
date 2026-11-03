@@ -1,7 +1,28 @@
+# ==========================================
+# DOFBOT MAIN PROGRAM
+# ==========================================
+#
+# Description:
+#     Coordinates command execution for the
+#     Yahboom DOFBOT robotic arm.
+#
+#     Reads predefined commands from
+#     dofbot_commands.py and generates joint-space
+#     trajectories using dofbot_kinematics.py.
+#
+#     Executes movements and gripper operations
+#     through dofbot_controller.py.
+#
+#     Optionally integrates with the 3D simulator
+#     to display robot motion and record command
+#     sequence history.
+#
+# ==========================================
+
 
 import numpy as np
 
-import dofbot_kinematics as robot
+import dofbot_kinematics as kinematics
 import dofbot_controller as controller
 import dofbot_commands as command_data
 
@@ -12,65 +33,183 @@ import dofbot_commands as command_data
 
 def run_commands(visualizer=None):
 
+    # Initial robot states
     gripper_state = controller.get_gripper_angle()
-    joints_state = np.array(controller.get_joint_angles(), dtype=float)
 
+    joints_state = np.array(
+        controller.get_joint_angles(),
+        dtype=float
+    )
+
+    # Command sequence information
     sequence = command_data.ACTIVE_SEQUENCE
+
     total_commands = len(sequence)
-    total_moves = sum(1 for kind, _ in sequence if kind == "MOVE_TO")
+
+    total_moves = sum(
+        1 for command_type, _ in sequence
+        if command_type == "MOVE_TO"
+    )
+
     move_number = 0
 
     if visualizer is not None:
         visualizer.begin_sequence(total_commands)
 
     try:
-        for command_number, (command_type, value) in enumerate(sequence, start=1):
+
+        for command_number, (command_type, value) in enumerate(
+            sequence,
+            start=1
+        ):
+
+            # ==================================
+            # VALIDATE COMMAND
+            # ==================================
 
             if command_type not in ("MOVE_TO", "GRAB", "DROP"):
-                print(f"Unknown command type: {command_type}")
-                continue
 
-            if command_type == "MOVE_TO":
-                move_number += 1
-
-            qstart = np.array(controller.get_joint_angles(), dtype=float)
-            qend = np.array(value, dtype=float)
-
-            print(f"Executing {command_type} ({command_number}/{total_commands})")
-            print(f"Original joint positions: {qstart}")
-            print(f"Desired joint positions: {qend}")
-
-            robot.generate_trajectory(qstart, qend)
-
-            if visualizer is not None:
-                visualizer.new_command(
-                    command_type,
-                    gripper_state,
-                    command_number=command_number,
-                    command_total=total_commands,
-                    move_number=move_number if command_type == "MOVE_TO" else None,
-                    move_total=total_moves
+                print(
+                    f"Unknown command type: {command_type}"
                 )
 
-            controller.execute_trajectory(gripper_state, visualizer)
+                continue
 
-            if command_type == "GRAB":
-                controller.command_gripper(controller.GRIPPER_CLOSED)
-            elif command_type == "DROP":
-                controller.command_gripper(controller.GRIPPER_OPEN)
+            # Current joint configuration
+            qstart = np.array(
+                controller.get_joint_angles(),
+                dtype=float
+            )
 
-            gripper_state = controller.get_gripper_angle()
-            joints_state = np.array(controller.get_joint_angles(), dtype=float)
+            print(
+                f"Executing {command_type} "
+                f"({command_number}/{total_commands})"
+            )
 
+            print(
+                f"Current joint positions: {qstart}"
+            )
+
+            # ==================================
+            # MOVE ARM
+            # ==================================
+
+            if command_type == "MOVE_TO":
+
+                move_number += 1
+
+                qend = np.asarray(
+                    value,
+                    dtype=float
+                ).flatten()
+
+                if qend.size != 5:
+                    raise ValueError(
+                        "MOVE_TO requires 5 joint angles."
+                    )
+
+                print(
+                    f"Desired joint positions: {qend}"
+                )
+
+                # Generate joint-space trajectory
+                kinematics.generate_trajectory(
+                    qstart,
+                    qend
+                )
+
+                # Record movement in visualization
+                if visualizer is not None:
+
+                    visualizer.new_command(
+                        command_type,
+                        gripper_state,
+                        command_number=command_number,
+                        command_total=total_commands,
+                        move_number=move_number,
+                        move_total=total_moves
+                    )
+
+                # Execute joint-space trajectory
+                controller.execute_trajectory(
+                    gripper_state,
+                    visualizer
+                )
+
+            # ==================================
+            # GRIPPER COMMANDS
+            # ==================================
+
+            elif command_type in ("GRAB", "DROP"):
+
+                # Record stationary gripper command
+                if visualizer is not None:
+
+                    visualizer.record_gripper_command(
+                        command_type,
+                        gripper_state,
+                        qstart,
+                        command_number=command_number,
+                        command_total=total_commands,
+                        move_total=total_moves
+                    )
+
+                # Command gripper only
+                if command_type == "GRAB":
+
+                    controller.command_gripper(
+                        controller.GRIPPER_CLOSED
+                    )
+
+                else:
+
+                    controller.command_gripper(
+                        controller.GRIPPER_OPEN
+                    )
+
+            # ==================================
+            # UPDATE ROBOT STATE
+            # ==================================
+
+            joints_state = np.array(
+                controller.get_joint_angles(),
+                dtype=float
+            )
+
+            gripper_state = (
+                controller.get_gripper_angle()
+            )
+
+            # Update gripper visualization
             if visualizer is not None:
-                visualizer.set_gripper_angle(gripper_state)
+
+                visualizer.set_gripper_angle(
+                    gripper_state
+                )
 
     finally:
+
         if visualizer is not None:
             visualizer.end_sequence()
 
-    print("Finished executing command sequence.")
-    print("Final joint positions:", joints_state)
+    # ==========================================
+    # FINISHED
+    # ==========================================
+
+    print(
+        "Finished executing command sequence."
+    )
+
+    print(
+        "Final joint positions:",
+        joints_state
+    )
+
+    print(
+        "Final gripper angle:",
+        gripper_state
+    )
+
     return joints_state
 
 
@@ -79,4 +218,5 @@ def run_commands(visualizer=None):
 # ==========================================
 
 if __name__ == "__main__":
+
     run_commands()

@@ -1,3 +1,26 @@
+# ==========================================
+# DOFBOT ROBOT SIMULATION AND VISUALIZATION
+# ==========================================
+#
+# Description:
+#     Provides an interactive 3D visualization of
+#     the Yahboom DOFBOT robotic arm using Matplotlib.
+#
+#     Displays joint configurations, end-effector
+#     position and orientation, gripper state,
+#     and trajectory execution information.
+#
+#     Records command-sequence history for playback,
+#     frame navigation, and trajectory inspection.
+#
+#     Includes pause/resume, replay, camera reset,
+#     and command navigation controls.
+#
+#     The visualization operates independently of
+#     physical robot hardware.
+#
+# ==========================================
+
 
 import bisect
 import time
@@ -10,7 +33,7 @@ from matplotlib.widgets import Slider, Button
 from matplotlib.gridspec import GridSpec
 from scipy.spatial.transform import Rotation
 
-import dofbot_kinematics as robot
+import dofbot_kinematics as kinematics
 
 
 # ==========================================
@@ -34,6 +57,7 @@ MAX_FPS = 20.0
 
 class DofbotVisualizer:
 
+    # Initializes the visualization state and graphical objects.
     def __init__(self):
 
         # Command history
@@ -95,9 +119,10 @@ class DofbotVisualizer:
 
 
     # ==========================================
-    # BEGIN COMMAND SEQUENCE
+    # COMMAND SEQUENCE
     # ==========================================
 
+    # Clears previous trajectory history and starts a new sequence.
     def begin_sequence(self, total_commands=0):
 
         if self.timer is not None:
@@ -117,11 +142,28 @@ class DofbotVisualizer:
         self.paused = False
         self.playing = False
 
+    # Marks the command sequence as complete and enables replay.
+    def end_sequence(self):
 
+        self.controller_running = False
+        self.sequence_running = False
+        self.paused = False
+
+        if not self.initialized:
+            return
+
+        self.play_button.label.set_text("Replay")
+
+        self.refresh_slider_range()
+        self.render(self.global_frame)
+        self.process_events()
+        
+    
     # ==========================================
     # STORE COMMAND TRAJECTORY
     # ==========================================
 
+    # Records a new movement command and its trajectory.
     def new_command(
         self,
         command_type,
@@ -135,7 +177,7 @@ class DofbotVisualizer:
         if self.timer is not None:
             self.timer.stop()
 
-        q = robot.q.copy()
+        q = kinematics.q.copy()
         N = q.shape[1]
 
         points = np.zeros((N, 7, 3))
@@ -144,7 +186,7 @@ class DofbotVisualizer:
         for ii in range(N):
 
             _, path[ii], points[ii] = (
-                robot.fwdkin_with_points(q[:, ii])
+                kinematics.fwdkin_with_points(q[:, ii])
             )
 
         command = {
@@ -187,32 +229,102 @@ class DofbotVisualizer:
         self.refresh_slider_range()
         self.render(self.global_frame)
         self.process_events()
-
-
+    
     # ==========================================
-    # FINISH COMMAND SEQUENCE
+    # RECORD GRIPPER COMMAND
     # ==========================================
 
-    def end_sequence(self):
+    # Records a gripper command and its associated joint configuration.
+    def record_gripper_command(
+        self,
+        command_type,
+        gripper_angle,
+        joint_angles,
+        command_number=None,
+        command_total=None,
+        move_total=None
+    ):
 
-        self.controller_running = False
-        self.sequence_running = False
+        # Stop any previous replay
+        if self.timer is not None:
+            self.timer.stop()
+
+        self.playing = False
         self.paused = False
+        self.controller_running = False
+
+        # Current joint configuration
+        q = np.asarray(
+            joint_angles,
+            dtype=float
+        ).reshape(5, 1)
+
+        # Forward kinematics
+        Rot, Pot, points = (
+            kinematics.fwdkin_with_points(q[:, 0])
+        )
+
+        # Store stationary robot configuration
+        command = {
+            "type": command_type,
+            "number": command_number or len(self.history) + 1,
+            "total": command_total or self.command_total,
+            "move_number": None,
+            "move_total": move_total,
+            "q": q.copy(),
+            "path": Pot.reshape(1, 3).copy(),
+            "points": points.reshape(1, 7, 3).copy(),
+            "qstart": q[:, 0].copy(),
+            "qend": q[:, 0].copy(),
+            "gripper_before": float(gripper_angle),
+            "gripper_after": float(gripper_angle),
+            "gripper_event": False
+        }
+
+        # ==================================
+        # ADD TO COMMAND HISTORY
+        # ==================================
+
+        self.starts.append(
+            self.total_frames
+        )
+
+        self.history.append(
+            command
+        )
+
+        self.total_frames += 1
+
+        self.active_command = (
+            len(self.history) - 1
+        )
+
+        self.global_frame = (
+            self.starts[self.active_command]
+        )
+
+        self.current_frame = 0
+
+        self.gripper_angle = float(
+            gripper_angle
+        )
+
+        # ==================================
+        # UPDATE VISUALIZATION
+        # ==================================
 
         if not self.initialized:
-            return
-
-        self.play_button.label.set_text("Replay")
+            self.setup_figure()
 
         self.refresh_slider_range()
-        self.render(self.global_frame)
+
+        self.render(
+            self.global_frame
+        )
+
         self.process_events()
 
-
-    # ==========================================
-    # RECORD GRIPPER CHANGE
-    # ==========================================
-
+    # Records a gripper state change in the command history.
     def set_gripper_angle(self, angle):
 
         self.gripper_angle = float(angle)
@@ -248,9 +360,10 @@ class DofbotVisualizer:
 
 
     # ==========================================
-    # CREATE WINDOW
+    # CREATE WINDOW AND OBJECTS
     # ==========================================
 
+    # Creates the Matplotlib window, controls, and graph layout.
     def setup_figure(self):
 
         self.fig = plt.figure(
@@ -367,7 +480,7 @@ class DofbotVisualizer:
                 20,
                 round(
                     1000 * TOTAL_TIME
-                    / max(robot.N - 1, 1)
+                    / max(kinematics.N - 1, 1)
                 )
             )
         )
@@ -382,11 +495,7 @@ class DofbotVisualizer:
 
         plt.show(block=False)
 
-
-    # ==========================================
-    # CREATE GRAPHICAL OBJECTS
-    # ==========================================
-
+    # Initializes the robot's 3D graphical objects.
     def setup_artists(self):
 
         self.ax.set_xlabel("X (m)")
@@ -496,6 +605,7 @@ class DofbotVisualizer:
     # GRAPH VIEW
     # ==========================================
 
+    # Restores the default axis limits.
     def reset_axis_limits(self):
 
         self.ax.set_xlim(-0.31, 0.31)
@@ -506,7 +616,7 @@ class DofbotVisualizer:
             (1, 1, 0.75)
         )
 
-
+    # Restores the default 3D camera view and axis limits.
     def reset_view(self, event):
 
         self.reset_axis_limits()
@@ -523,6 +633,7 @@ class DofbotVisualizer:
     # TIMELINE INDEXING
     # ==========================================
 
+    # Updates the timeline slider limits to include recorded frames.
     def refresh_slider_range(self):
 
         if not self.initialized:
@@ -540,7 +651,7 @@ class DofbotVisualizer:
             maximum
         )
 
-
+    # Identifies the command and local frame for a timeline position.
     def lookup_frame(self, global_frame):
 
         frame = int(
@@ -588,9 +699,10 @@ class DofbotVisualizer:
 
 
     # ==========================================
-    # CONTROLLER UPDATE
+    # CONTROLLER UPDATE AND RENDER
     # ==========================================
 
+    # Updates the displayed frame during live trajectory execution.
     def update(self, frame):
 
         if not self.initialized:
@@ -636,11 +748,7 @@ class DofbotVisualizer:
 
         self.process_events()
 
-
-    # ==========================================
-    # RENDER RECORDED FRAME
-    # ==========================================
-
+    # Renders a recorded robot configuration and gripper state.
     def render(self, global_frame):
 
         if not self.initialized or not self.history:
@@ -667,7 +775,7 @@ class DofbotVisualizer:
         q = command["q"][:, ii]
 
         Rot, Pot, points = (
-            robot.fwdkin_with_points(q)
+            kinematics.fwdkin_with_points(q)
         )
 
         # Update individual links
@@ -851,9 +959,10 @@ class DofbotVisualizer:
 
 
     # ==========================================
-    # INFORMATION PANEL
+    # PROCESS EVENTS AND USER INPUT
     # ==========================================
 
+    # Updates the robot telemetry and command information panel.
     def update_info(
         self,
         command,
@@ -988,11 +1097,7 @@ class DofbotVisualizer:
             "\n".join(panel)
         )
 
-
-    # ==========================================
-    # PROCESS EVENTS
-    # ==========================================
-
+    # Processes pending graphical events to keep the window responsive.
     def process_events(self, duration=0.001):
 
         if not self.initialized:
@@ -1004,11 +1109,7 @@ class DofbotVisualizer:
                 max(duration, 0.001)
             )
 
-
-    # ==========================================
-    # WAIT IF PAUSED
-    # ==========================================
-
+    # Holds trajectory execution while the simulation is paused.
     def wait_if_paused(self):
 
         if not self.paused:
@@ -1030,11 +1131,7 @@ class DofbotVisualizer:
             time.monotonic() - pause_start
         )
 
-
-    # ==========================================
-    # SLIDER CONTROL
-    # ==========================================
-
+    # Pauses or resumes live execution or recorded playback.
     def slider_changed(self, value):
 
         if self.updating_slider:
@@ -1047,11 +1144,7 @@ class DofbotVisualizer:
             int(value)
         )
 
-
-    # ==========================================
-    # PLAY / PAUSE CONTROL
-    # ==========================================
-
+    # Stops recorded playback without changing the robot state.
     def toggle_play(self, event):
 
         # Live simulation
@@ -1096,11 +1189,7 @@ class DofbotVisualizer:
 
         self.render(self.global_frame)
 
-
-    # ==========================================
-    # REPLAY TIMER
-    # ==========================================
-
+    # Advances to the next frame in the recorded command sequence.
     def advance_frame(self):
 
         if not self.playing:
@@ -1120,11 +1209,7 @@ class DofbotVisualizer:
                 self.global_frame + 1
             )
 
-
-    # ==========================================
-    # STOP REPLAY
-    # ==========================================
-
+    # Stops the replay of the recorded command sequence.
     def stop_replay(self):
 
         self.playing = False
@@ -1136,11 +1221,7 @@ class DofbotVisualizer:
             "Replay"
         )
 
-
-    # ==========================================
-    # FIRST FRAME
-    # ==========================================
-
+    # Jumps to the beginning of the recorded command sequence.
     def first_frame(self, event):
 
         if self.sequence_running:
@@ -1151,11 +1232,7 @@ class DofbotVisualizer:
         if self.history:
             self.render(0)
 
-
-    # ==========================================
-    # PREVIOUS COMMAND
-    # ==========================================
-
+    # Jumps to the beginning of the previous command.
     def previous_command(self, event):
 
         if self.sequence_running or not self.history:
@@ -1176,11 +1253,7 @@ class DofbotVisualizer:
             self.starts[index]
         )
 
-
-    # ==========================================
-    # NEXT COMMAND
-    # ==========================================
-
+    # Jumps to the beginning of the next command.
     def next_command(self, event):
 
         if self.sequence_running or not self.history:
@@ -1201,11 +1274,7 @@ class DofbotVisualizer:
             self.starts[index]
         )
 
-
-    # ==========================================
-    # PATH CONTROL
-    # ==========================================
-
+    # Shows or hides the end-effector trajectory.
     def toggle_path(self, event):
 
         self.show_path = not self.show_path
