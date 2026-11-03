@@ -12,136 +12,65 @@ import dofbot_commands as command_data
 
 def run_commands(visualizer=None):
 
-    # Initial robot states
-    gripper_state = controller.GRIPPER_OPEN
+    gripper_state = controller.get_gripper_angle()
+    joints_state = np.array(controller.get_joint_angles(), dtype=float)
 
-    # Get initial joint positions
-    if controller.TEST:
-        joints_state = np.array(
-            [90, 90, 90, 90, 90],
-            dtype=float
-        )
-    else:
-        joints_state = np.array(
-            controller.get_joint_angles(),
-            dtype=float
-        )
+    sequence = command_data.ACTIVE_SEQUENCE
+    total_commands = len(sequence)
+    total_moves = sum(1 for kind, _ in sequence if kind == "MOVE_TO")
+    move_number = 0
 
-    # Execute command sequence
-    for command_type, value in command_data.ACTIVE_SEQUENCE:
+    if visualizer is not None:
+        visualizer.begin_sequence(total_commands)
 
-        print(
-            f"Executing command: {command_type} "
-            f"with value: {value}"
-        )
+    try:
+        for command_number, (command_type, value) in enumerate(sequence, start=1):
 
-        # Determine starting joint configuration
-        if controller.TEST:
-            q_start = joints_state.copy()
-        else:
-            q_start = np.array(
-                controller.get_joint_angles(),
-                dtype=float
-            )
-
-        print(f"Current joint positions: {q_start}")
-
-        # Target joint configuration
-        qend = np.array(value, dtype=float)
-
-        # ==================================
-        # GENERATE TRAJECTORY
-        # ==================================
-
-        robot.generate_trajectory(q_start, qend)
-
-        # ==================================
-        # INITIALIZE VISUALIZATION
-        # ==================================
-
-        if visualizer is not None:
-
-            visualizer.new_command(
-                command_type,
-                gripper_state
-            )
-
-        # ==================================
-        # EXECUTE COMMAND
-        # ==================================
-
-        match command_type:
-
-            case "GRAB":
-
-                controller.execute_trajectory(
-                    gripper_state,
-                    visualizer
-                )
-
-                controller.command_gripper(
-                    controller.GRIPPER_CLOSED
-                )
-
-                gripper_state = controller.GRIPPER_CLOSED
-
-            case "DROP":
-
-                controller.execute_trajectory(
-                    gripper_state,
-                    visualizer
-                )
-
-                controller.command_gripper(
-                    controller.GRIPPER_OPEN
-                )
-
-                gripper_state = controller.GRIPPER_OPEN
-
-            case "MOVE_TO":
-
-                controller.execute_trajectory(
-                    gripper_state,
-                    visualizer
-                )
-
-            case _:
-
+            if command_type not in ("MOVE_TO", "GRAB", "DROP"):
                 print(f"Unknown command type: {command_type}")
                 continue
 
-        # ==================================
-        # UPDATE ROBOT STATE
-        # ==================================
+            if command_type == "MOVE_TO":
+                move_number += 1
 
-        if controller.TEST:
-            joints_state = qend.copy()
+            qstart = np.array(controller.get_joint_angles(), dtype=float)
+            qend = np.array(value, dtype=float)
 
-        else:
-            joints_state = np.array(
-                controller.get_joint_angles(),
-                dtype=float
-            )
+            print(f"Executing {command_type} ({command_number}/{total_commands})")
+            print(f"Original joint positions: {qstart}")
+            print(f"Desired joint positions: {qend}")
 
-        # Update visualizer gripper
+            robot.generate_trajectory(qstart, qend)
+
+            if visualizer is not None:
+                visualizer.new_command(
+                    command_type,
+                    gripper_state,
+                    command_number=command_number,
+                    command_total=total_commands,
+                    move_number=move_number if command_type == "MOVE_TO" else None,
+                    move_total=total_moves
+                )
+
+            controller.execute_trajectory(gripper_state, visualizer)
+
+            if command_type == "GRAB":
+                controller.command_gripper(controller.GRIPPER_CLOSED)
+            elif command_type == "DROP":
+                controller.command_gripper(controller.GRIPPER_OPEN)
+
+            gripper_state = controller.get_gripper_angle()
+            joints_state = np.array(controller.get_joint_angles(), dtype=float)
+
+            if visualizer is not None:
+                visualizer.set_gripper_angle(gripper_state)
+
+    finally:
         if visualizer is not None:
-            visualizer.set_gripper_angle(
-                gripper_state
-            )
+            visualizer.end_sequence()
 
-    # ======================================
-    # FINISHED
-    # ======================================
-
-    print(
-        "Finished executing command sequence."
-    )
-
-    print(
-        "Final joint positions:",
-        joints_state
-    )
-
+    print("Finished executing command sequence.")
+    print("Final joint positions:", joints_state)
     return joints_state
 
 
@@ -150,5 +79,4 @@ def run_commands(visualizer=None):
 # ==========================================
 
 if __name__ == "__main__":
-
     run_commands()

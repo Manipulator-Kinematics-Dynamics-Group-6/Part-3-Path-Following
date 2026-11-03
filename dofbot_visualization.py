@@ -1,154 +1,338 @@
 
+import bisect
+import time
+import warnings
+
 import numpy as np
 import matplotlib.pyplot as plt
 
 from matplotlib.widgets import Slider, Button
+from matplotlib.gridspec import GridSpec
+from scipy.spatial.transform import Rotation
 
 import dofbot_kinematics as robot
 
 
 # ==========================================
-# GRIPPER SETTINGS
+# SIMULATOR SETTINGS
 # ==========================================
 
 GRIPPER_OPEN = 60
 GRIPPER_CLOSED = 130
 
 FINGER_LENGTH = 0.045
-
 MAX_GAP = 0.045
 MIN_GAP = 0.008
 
+TOTAL_TIME = 10.0
+MAX_FPS = 20.0
+
 
 # ==========================================
-# DOFBOT VISUALIZER
+# VISUALIZER
 # ==========================================
 
 class DofbotVisualizer:
 
     def __init__(self):
 
-        self.q = None
-        self.Pot = None
-        self.N = 0
-
-        self.gripper_angle = GRIPPER_OPEN
-
-        self.current_command = "Ready"
-
-        self.all_points = None
-        self.ee_path = None
-        self.axis_limits = None
-
+        # Command history
+        self.history = []
+        self.starts = []
+        self.total_frames = 0
+        self.global_frame = 0
         self.current_frame = 0
-        self.playing = False
-        self.initialized = False
+        self.active_command = None
+        self.command_total = 0
 
+        # Robot state
+        self.gripper_angle = GRIPPER_OPEN
+        self.controller_running = False
+        self.sequence_running = False
+        self.paused = False
+
+        # Visualization state
+        self.initialized = False
+        self.playing = False
+        self.show_path = True
+        self.updating_slider = False
+        self.last_draw_time = 0.0
+
+        # Graphical objects
         self.fig = None
         self.ax = None
+        self.info_ax = None
+        self.info_text = None
 
         self.frame_slider = None
         self.play_button = None
-        self.reset_button = None
-
+        self.first_button = None
+        self.prev_button = None
+        self.next_button = None
+        self.view_button = None
+        self.path_button = None
         self.timer = None
 
-        self.updating_slider = False
+        self.link_lines = []
+        self.joint_markers = []
+        self.joint_labels = []
+        self.gripper_lines = []
+        self.tool_axes = []
 
-    # ======================================
-    # LOAD TRAJECTORY
-    # ======================================
+        self.ee_marker = None
+        self.ee_label = None
+        self.path_line = None
+        self.completed_path = None
 
-    def load_trajectory(self):
+        self.link_colors = [
+            "dimgray",
+            "royalblue",
+            "darkorange",
+            "seagreen",
+            "mediumpurple",
+            "crimson"
+        ]
 
-        self.q = robot.q.copy()
-        self.Pot = robot.Pot.copy()
-        self.N = robot.N
 
-        self.all_points = np.zeros((self.N, 7, 3))
+    # ==========================================
+    # BEGIN COMMAND SEQUENCE
+    # ==========================================
 
-        for i in range(self.N):
+    def begin_sequence(self, total_commands=0):
 
-            _, _, points = robot.fwdkin_with_points(
-                self.q[:, i]
+        if self.timer is not None:
+            self.timer.stop()
+
+        self.history = []
+        self.starts = []
+        self.total_frames = 0
+        self.global_frame = 0
+        self.current_frame = 0
+        self.active_command = None
+
+        self.command_total = total_commands
+
+        self.controller_running = False
+        self.sequence_running = True
+        self.paused = False
+        self.playing = False
+
+
+    # ==========================================
+    # STORE COMMAND TRAJECTORY
+    # ==========================================
+
+    def new_command(
+        self,
+        command_type,
+        gripper_angle,
+        command_number=None,
+        command_total=None,
+        move_number=None,
+        move_total=None
+    ):
+
+        if self.timer is not None:
+            self.timer.stop()
+
+        q = robot.q.copy()
+        N = q.shape[1]
+
+        points = np.zeros((N, 7, 3))
+        path = np.zeros((N, 3))
+
+        for ii in range(N):
+
+            _, path[ii], points[ii] = (
+                robot.fwdkin_with_points(q[:, ii])
             )
 
-            self.all_points[i] = points
+        command = {
+            "type": command_type,
+            "number": command_number or len(self.history) + 1,
+            "total": command_total or self.command_total,
+            "move_number": move_number,
+            "move_total": move_total,
+            "q": q,
+            "path": path,
+            "points": points,
+            "qstart": q[:, 0].copy(),
+            "qend": q[:, -1].copy(),
+            "gripper_before": float(gripper_angle),
+            "gripper_after": float(gripper_angle),
+            "gripper_event": False
+        }
 
-        self.ee_path = self.Pot.T.copy()
+        self.starts.append(self.total_frames)
+        self.history.append(command)
 
-        minimum = np.min(
-            self.all_points.reshape(-1, 3),
-            axis=0
-        )
+        self.total_frames += N
 
-        maximum = np.max(
-            self.all_points.reshape(-1, 3),
-            axis=0
-        )
+        self.active_command = len(self.history) - 1
 
-        center = (minimum + maximum) / 2
+        self.global_frame = self.starts[self.active_command]
+        self.current_frame = 0
 
-        limit = max(
-            np.max(maximum - minimum) * 0.7,
-            0.12
-        )
+        self.gripper_angle = float(gripper_angle)
 
-        self.axis_limits = (
-            center[0] - limit,
-            center[0] + limit,
-            center[1] - limit,
-            center[1] + limit,
-            center[2] - limit,
-            center[2] + limit
-        )
+        self.controller_running = True
+        self.paused = False
+        self.playing = False
 
-    # ======================================
-    # INITIALIZE FIGURE
-    # ======================================
+        if not self.initialized:
+            self.setup_figure()
+
+        self.play_button.label.set_text("Pause")
+
+        self.refresh_slider_range()
+        self.render(self.global_frame)
+        self.process_events()
+
+
+    # ==========================================
+    # FINISH COMMAND SEQUENCE
+    # ==========================================
+
+    def end_sequence(self):
+
+        self.controller_running = False
+        self.sequence_running = False
+        self.paused = False
+
+        if not self.initialized:
+            return
+
+        self.play_button.label.set_text("Replay")
+
+        self.refresh_slider_range()
+        self.render(self.global_frame)
+        self.process_events()
+
+
+    # ==========================================
+    # RECORD GRIPPER CHANGE
+    # ==========================================
+
+    def set_gripper_angle(self, angle):
+
+        self.gripper_angle = float(angle)
+
+        if self.active_command is None:
+            return
+
+        command = self.history[self.active_command]
+
+        command["gripper_after"] = self.gripper_angle
+
+        if (
+            not command["gripper_event"]
+            and not np.isclose(
+                command["gripper_before"],
+                self.gripper_angle
+            )
+        ):
+
+            command["gripper_event"] = True
+            self.total_frames += 1
+
+            self.global_frame = (
+                self.starts[self.active_command]
+                + command["q"].shape[1]
+            )
+
+        if self.initialized:
+
+            self.refresh_slider_range()
+            self.render(self.global_frame)
+            self.process_events()
+
+
+    # ==========================================
+    # CREATE WINDOW
+    # ==========================================
 
     def setup_figure(self):
 
-        self.fig = plt.figure(figsize=(12, 10))
-
-        self.fig.canvas.manager.set_window_title(
-            "Dofbot Simulator"
+        self.fig = plt.figure(
+            figsize=(14, 8),
+            facecolor="#f4f5f7"
         )
 
-        self.ax = self.fig.add_axes(
-            [0.08, 0.28, 0.84, 0.67],
+        if self.fig.canvas.manager is not None:
+
+            self.fig.canvas.manager.set_window_title(
+                "DOFBOT Robot Simulator"
+            )
+
+        gs = GridSpec(
+            1, 2,
+            figure=self.fig,
+            width_ratios=[2.1, 1.1],
+            left=0.04,
+            right=0.98,
+            top=0.88,
+            bottom=0.24,
+            wspace=0.06
+        )
+
+        self.ax = self.fig.add_subplot(
+            gs[0, 0],
             projection="3d"
         )
 
+        self.info_ax = self.fig.add_subplot(
+            gs[0, 1]
+        )
+
+        self.info_ax.axis("off")
+
+        self.fig.suptitle(
+            "DOFBOT ROBOT SIMULATOR",
+            fontsize=17,
+            fontweight="bold"
+        )
+
         slider_ax = self.fig.add_axes(
-            [0.20, 0.17, 0.60, 0.035]
+            [0.16, 0.155, 0.70, 0.028]
         )
 
         self.frame_slider = Slider(
             slider_ax,
-            "Frame",
+            "Sequence frame",
             0,
-            self.N - 1,
+            max(1, self.total_frames - 1),
             valinit=0,
-            valstep=1
+            valstep=1,
+            color="#2878b5"
         )
 
-        play_ax = self.fig.add_axes(
-            [0.25, 0.07, 0.15, 0.055]
-        )
+        button_data = [
+            ("Pause", "play_button"),
+            ("First Frame", "first_button"),
+            ("Prev Cmd", "prev_button"),
+            ("Next Cmd", "next_button"),
+            ("Reset View", "view_button"),
+            ("Hide Path", "path_button")
+        ]
 
-        reset_ax = self.fig.add_axes(
-            [0.60, 0.07, 0.15, 0.055]
-        )
+        for ii, (label, attribute) in enumerate(button_data):
 
-        self.play_button = Button(play_ax, "Play")
-        self.reset_button = Button(reset_ax, "Reset")
+            button_ax = self.fig.add_axes([
+                0.055 + ii * 0.152,
+                0.065,
+                0.137,
+                0.055
+            ])
 
-        self.timer = self.fig.canvas.new_timer(
-            interval=50
-        )
-
-        self.timer.add_callback(self.advance_frame)
+            setattr(
+                self,
+                attribute,
+                Button(
+                    button_ax,
+                    label,
+                    color="#eeeeee"
+                )
+            )
 
         self.frame_slider.on_changed(
             self.slider_changed
@@ -158,380 +342,883 @@ class DofbotVisualizer:
             self.toggle_play
         )
 
-        self.reset_button.on_clicked(
-            self.reset_frame
+        self.first_button.on_clicked(
+            self.first_frame
         )
+
+        self.prev_button.on_clicked(
+            self.previous_command
+        )
+
+        self.next_button.on_clicked(
+            self.next_command
+        )
+
+        self.view_button.on_clicked(
+            self.reset_view
+        )
+
+        self.path_button.on_clicked(
+            self.toggle_path
+        )
+
+        self.timer = self.fig.canvas.new_timer(
+            interval=max(
+                20,
+                round(
+                    1000 * TOTAL_TIME
+                    / max(robot.N - 1, 1)
+                )
+            )
+        )
+
+        self.timer.add_callback(
+            self.advance_frame
+        )
+
+        self.setup_artists()
 
         self.initialized = True
 
-    # ======================================
-    # START
-    # ======================================
-
-    def start(self):
-
-        if not self.initialized:
-
-            self.load_trajectory()
-            self.setup_figure()
-
-        self.draw_robot(0)
-
         plt.show(block=False)
-        plt.pause(0.1)
 
-    # ======================================
-    # NEW COMMAND
-    # ======================================
 
-    def new_command(self, command_type, gripper_angle):
+    # ==========================================
+    # CREATE GRAPHICAL OBJECTS
+    # ==========================================
 
-        self.playing = False
+    def setup_artists(self):
 
-        if self.initialized:
+        self.ax.set_xlabel("X (m)")
+        self.ax.set_ylabel("Y (m)")
+        self.ax.set_zlabel("Z (m)")
 
-            self.timer.stop()
-
-            self.play_button.label.set_text("Play")
-
-        self.load_trajectory()
-
-        self.current_command = command_type
-        self.gripper_angle = gripper_angle
-
-        self.current_frame = 0
-
-        if not self.initialized:
-
-            self.setup_figure()
-
-        else:
-
-            self.frame_slider.valmin = 0
-            self.frame_slider.valmax = self.N - 1
-
-            self.frame_slider.ax.set_xlim(
-                0, self.N - 1
-            )
-
-            self.frame_slider.set_val(0)
-
-        self.draw_robot(0)
-
-        self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events()
-
-        plt.pause(0.001)
-
-    # ======================================
-    # GRIPPER UPDATE
-    # ======================================
-
-    def set_gripper_angle(self, angle):
-
-        self.gripper_angle = angle
-
-        if self.initialized:
-
-            self.draw_robot(self.current_frame)
-
-            self.fig.canvas.draw_idle()
-            self.fig.canvas.flush_events()
-
-            plt.pause(0.001)
-
-    # ======================================
-    # DRAW ROBOT
-    # ======================================
-
-    def draw_robot(self, frame):
-
-        if self.q is None:
-            return
-
-        frame = int(np.clip(frame, 0, self.N - 1))
-        self.current_frame = frame
-
-        self.ax.clear()
-
-        joint_angles = self.q[:, frame]
-
-        Rot, Pot, points = robot.fwdkin_with_points(
-            joint_angles
+        self.ax.set_title(
+            "Robot Configuration",
+            pad=10
         )
 
-        # ==================================
-        # GRIPPER GAP
-        # ==================================
+        self.reset_axis_limits()
 
-        grip_fraction = (
-            self.gripper_angle - GRIPPER_OPEN
-        ) / (
-            GRIPPER_CLOSED - GRIPPER_OPEN
+        self.ax.view_init(
+            elev=22,
+            azim=-58
         )
 
-        grip_fraction = np.clip(grip_fraction, 0, 1)
-
-        gap = MAX_GAP - grip_fraction * (
-            MAX_GAP - MIN_GAP
-        )
-
-        # ==================================
-        # EE TRAJECTORY
-        # ==================================
-
-        self.ax.plot(
-            self.ee_path[:, 0],
-            self.ee_path[:, 1],
-            self.ee_path[:, 2],
+        self.path_line, = self.ax.plot(
+            [], [], [],
             "--",
             color="gray",
-            alpha=0.3,
-            linewidth=1.5
+            alpha=0.4
         )
 
-        # ==================================
-        # SEPARATE LINKS
-        # ==================================
+        self.completed_path, = self.ax.plot(
+            [], [], [],
+            color="crimson",
+            linewidth=2
+        )
 
-        link_colors = [
-            "dimgray",
-            "royalblue",
-            "darkorange",
-            "seagreen",
-            "purple",
-            "crimson"
-        ]
+        for color in self.link_colors:
 
-        for i in range(len(points) - 1):
-
-            p1 = points[i]
-            p2 = points[i + 1]
-
-            self.ax.plot(
-                [p1[0], p2[0]],
-                [p1[1], p2[1]],
-                [p1[2], p2[2]],
-                color=link_colors[i],
-                linewidth=8,
-                solid_capstyle="round"
-            )
-
-        # ==================================
-        # JOINT MARKERS AND LABELS
-        # ==================================
-
-        for i in range(len(points)):
-
-            p = points[i]
-
-            if i == 0:
-
-                color = "black"
-                name = "Base"
-                size = 150
-
-            elif i == 6:
-
-                color = "red"
-                name = "EE"
-                size = 150
-
-            else:
-
-                color = "orange"
-                name = f"J{i}"
-                size = 120
-
-            self.ax.scatter(
-                p[0], p[1], p[2],
+            line, = self.ax.plot(
+                [], [], [],
                 color=color,
-                edgecolors="black",
-                linewidths=1.2,
-                s=size
+                linewidth=7
             )
 
-            self.ax.text(
-                p[0],
-                p[1],
-                p[2] + 0.012,
-                name,
-                fontsize=9,
-                fontweight="bold"
+            self.link_lines.append(line)
+
+        for ii in range(6):
+
+            marker, = self.ax.plot(
+                [], [], [],
+                "o",
+                color="black" if ii == 0 else "#ffb300",
+                markersize=9
             )
 
-        # ==================================
-        # JOINT ANGLES
-        # ==================================
-
-        for i in range(5):
-
-            p = points[i + 1]
-
-            self.ax.text(
-                p[0],
-                p[1],
-                p[2] - 0.018,
-                f"J{i+1}: {joint_angles[i]:.1f} deg",
-                fontsize=8,
-                color="darkred",
-                bbox=dict(
-                    facecolor="white",
-                    alpha=0.85,
-                    edgecolor="none"
-                )
+            label = self.ax.text(
+                0, 0, 0,
+                "BASE" if ii == 0 else f"J{ii}",
+                fontsize=8
             )
 
-        # ==================================
-        # GRIPPER
-        # ==================================
+            self.joint_markers.append(marker)
+            self.joint_labels.append(label)
 
-        for side in [-1, 1]:
+        self.ee_marker, = self.ax.plot(
+            [], [], [],
+            "o",
+            color="crimson",
+            markersize=9
+        )
 
-            local_points = np.array([
-                [0, side * gap / 2, 0],
-                [-FINGER_LENGTH, side * gap / 2, 0]
-            ])
+        self.ee_label = self.ax.text(
+            0, 0, 0,
+            "EE",
+            fontsize=9
+        )
 
-            world_points = (
-                Rot @ local_points.T
-            ).T + Pot
+        for ii in range(2):
 
-            self.ax.plot(
-                world_points[:, 0],
-                world_points[:, 1],
-                world_points[:, 2],
+            line, = self.ax.plot(
+                [], [], [],
                 color="black",
                 linewidth=5
             )
 
-        # ==================================
-        # BASE AND EE
-        # ==================================
+            self.gripper_lines.append(line)
 
-        self.ax.scatter(
-            0, 0, 0,
-            color="black",
-            s=150
+        for color in ("red", "green", "blue"):
+
+            line, = self.ax.plot(
+                [], [], [],
+                color=color,
+                linewidth=2
+            )
+
+            self.tool_axes.append(line)
+
+        self.info_text = self.info_ax.text(
+            0.02,
+            0.99,
+            "",
+            transform=self.info_ax.transAxes,
+            va="top",
+            ha="left",
+            fontsize=7.4,
+            fontfamily="monospace",
+            linespacing=1.06
         )
 
-        self.ax.scatter(
-            Pot[0], Pot[1], Pot[2],
-            color="red",
-            s=100
+
+    # ==========================================
+    # GRAPH VIEW
+    # ==========================================
+
+    def reset_axis_limits(self):
+
+        self.ax.set_xlim(-0.31, 0.31)
+        self.ax.set_ylim(-0.31, 0.31)
+        self.ax.set_zlim(0.0, 0.46)
+
+        self.ax.set_box_aspect(
+            (1, 1, 0.75)
         )
 
-        # ==================================
-        # AXES
-        # ==================================
 
-        xmin, xmax, ymin, ymax, zmin, zmax = (
-            self.axis_limits
+    def reset_view(self, event):
+
+        self.reset_axis_limits()
+
+        self.ax.view_init(
+            elev=22,
+            azim=-58
         )
-
-        self.ax.set_xlim(xmin, xmax)
-        self.ax.set_ylim(ymin, ymax)
-        self.ax.set_zlim(zmin, zmax)
-
-        self.ax.set_box_aspect([1, 1, 1])
-
-        self.ax.set_xlabel("X (meters)")
-        self.ax.set_ylabel("Y (meters)")
-        self.ax.set_zlabel("Z (meters)")
-
-        self.ax.set_title(
-            f"Dofbot | {self.current_command}\n"
-            f"Frame {frame+1}/{self.N}\n"
-            f"EE Position: {np.round(Pot, 4)} m\n"
-            f"Gripper: {self.gripper_angle} degrees"
-        )
-
-        self.ax.view_init(elev=25, azim=-55)
 
         self.fig.canvas.draw_idle()
 
-    # ======================================
-    # UPDATE FROM CONTROLLER
-    # ======================================
+
+    # ==========================================
+    # TIMELINE INDEXING
+    # ==========================================
+
+    def refresh_slider_range(self):
+
+        if not self.initialized:
+            return
+
+        maximum = max(
+            1,
+            self.total_frames - 1
+        )
+
+        self.frame_slider.valmax = maximum
+
+        self.frame_slider.ax.set_xlim(
+            0,
+            maximum
+        )
+
+
+    def lookup_frame(self, global_frame):
+
+        frame = int(
+            np.clip(
+                global_frame,
+                0,
+                self.total_frames - 1
+            )
+        )
+
+        command_index = (
+            bisect.bisect_right(
+                self.starts,
+                frame
+            ) - 1
+        )
+
+        command_index = max(
+            0,
+            command_index
+        )
+
+        command = self.history[command_index]
+
+        local_frame = (
+            frame - self.starts[command_index]
+        )
+
+        gripper_event = (
+            local_frame >= command["q"].shape[1]
+        )
+
+        local_frame = min(
+            local_frame,
+            command["q"].shape[1] - 1
+        )
+
+        return (
+            frame,
+            command_index,
+            command,
+            local_frame,
+            gripper_event
+        )
+
+
+    # ==========================================
+    # CONTROLLER UPDATE
+    # ==========================================
 
     def update(self, frame):
 
         if not self.initialized:
             return
 
-        self.draw_robot(frame)
+        if not plt.fignum_exists(self.fig.number):
+            return
+
+        command = self.history[self.active_command]
+
+        frame = int(
+            np.clip(
+                frame,
+                0,
+                command["q"].shape[1] - 1
+            )
+        )
+
+        self.current_frame = frame
+
+        self.global_frame = (
+            self.starts[self.active_command]
+            + frame
+        )
+
+        if frame == command["q"].shape[1] - 1:
+
+            self.controller_running = False
+
+        now = time.monotonic()
+
+        if frame not in (
+            0,
+            command["q"].shape[1] - 1
+        ):
+
+            if now - self.last_draw_time < 1 / MAX_FPS:
+                return
+
+        self.render(self.global_frame)
+
+        self.last_draw_time = time.monotonic()
+
+        self.process_events()
+
+
+    # ==========================================
+    # RENDER RECORDED FRAME
+    # ==========================================
+
+    def render(self, global_frame):
+
+        if not self.initialized or not self.history:
+            return
+
+        (
+            frame,
+            command_index,
+            command,
+            ii,
+            gripper_event
+        ) = self.lookup_frame(global_frame)
+
+        self.global_frame = frame
+        self.current_frame = ii
 
         self.updating_slider = True
 
-        self.frame_slider.set_val(frame)
+        if int(self.frame_slider.val) != frame:
+            self.frame_slider.set_val(frame)
 
         self.updating_slider = False
 
+        q = command["q"][:, ii]
+
+        Rot, Pot, points = (
+            robot.fwdkin_with_points(q)
+        )
+
+        # Update individual links
+        for jj, line in enumerate(self.link_lines):
+
+            segment = points[jj:jj + 2]
+
+            line.set_data(
+                segment[:, 0],
+                segment[:, 1]
+            )
+
+            line.set_3d_properties(
+                segment[:, 2]
+            )
+
+        # Update joint markers
+        for jj, (marker, label) in enumerate(
+            zip(
+                self.joint_markers,
+                self.joint_labels
+            )
+        ):
+
+            x, y, z = points[jj]
+
+            marker.set_data([x], [y])
+            marker.set_3d_properties([z])
+
+            label.set_position((x, y))
+
+            label.set_3d_properties(
+                z + 0.012 + (jj % 2) * 0.014
+            )
+
+        # Update end effector
+        self.ee_marker.set_data(
+            [Pot[0]],
+            [Pot[1]]
+        )
+
+        self.ee_marker.set_3d_properties(
+            [Pot[2]]
+        )
+
+        self.ee_label.set_position(
+            (Pot[0], Pot[1])
+        )
+
+        self.ee_label.set_3d_properties(
+            Pot[2] + 0.014
+        )
+
+        # Update end-effector axes
+        for jj, line in enumerate(self.tool_axes):
+
+            segment = np.vstack((
+                Pot,
+                Pot + 0.035 * Rot[:, jj]
+            ))
+
+            line.set_data(
+                segment[:, 0],
+                segment[:, 1]
+            )
+
+            line.set_3d_properties(
+                segment[:, 2]
+            )
+
+        # Update gripper
+        gripper_angle = (
+            command["gripper_after"]
+            if gripper_event
+            else command["gripper_before"]
+        )
+
+        grip_fraction = np.clip(
+            (
+                gripper_angle - GRIPPER_OPEN
+            ) / (
+                GRIPPER_CLOSED - GRIPPER_OPEN
+            ),
+            0,
+            1
+        )
+
+        gap = (
+            MAX_GAP
+            - grip_fraction * (MAX_GAP - MIN_GAP)
+        )
+
+        for jj, side in enumerate((-1, 1)):
+
+            local = np.array([
+                [-FINGER_LENGTH, side * gap / 2, 0],
+                [0, side * gap / 2, 0]
+            ])
+
+            world = (
+                Rot @ local.T
+            ).T + Pot
+
+            self.gripper_lines[jj].set_data(
+                world[:, 0],
+                world[:, 1]
+            )
+
+            self.gripper_lines[jj].set_3d_properties(
+                world[:, 2]
+            )
+
+        # Draw full recorded path
+        paths = []
+        completed = []
+
+        for jj, item in enumerate(self.history):
+
+            path = item["path"]
+
+            paths.append(path)
+
+            if jj < command_index:
+                completed.append(path)
+
+            elif jj == command_index:
+                completed.append(
+                    path[:ii + 1]
+                )
+
+        def join_paths(items):
+
+            if not items:
+                return np.empty((0, 3))
+
+            result = []
+
+            for path in items:
+
+                if result:
+                    result.append(
+                        np.full((1, 3), np.nan)
+                    )
+
+                result.append(path)
+
+            return np.vstack(result)
+
+        planned = join_paths(paths)
+        traveled = join_paths(completed)
+
+        for line, values in (
+            (self.path_line, planned),
+            (self.completed_path, traveled)
+        ):
+
+            line.set_visible(self.show_path)
+
+            line.set_data(
+                values[:, 0],
+                values[:, 1]
+            )
+
+            line.set_3d_properties(
+                values[:, 2]
+            )
+
+        self.update_info(
+            command,
+            ii,
+            frame,
+            q,
+            Rot,
+            Pot,
+            gripper_angle,
+            gap,
+            gripper_event
+        )
+
         self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events()
 
-        plt.pause(0.001)
 
-    # ======================================
-    # SLIDER
-    # ======================================
+    # ==========================================
+    # INFORMATION PANEL
+    # ==========================================
+
+    def update_info(
+        self,
+        command,
+        ii,
+        global_frame,
+        q,
+        Rot,
+        Pot,
+        gripper_angle,
+        gap,
+        gripper_event
+    ):
+
+        with warnings.catch_warnings():
+
+            warnings.filterwarnings(
+                "ignore",
+                message="Gimbal lock detected"
+            )
+
+            yaw, pitch, roll = (
+                Rotation.from_matrix(Rot).as_euler(
+                    "ZYX",
+                    degrees=True
+                )
+            )
+
+        quaternion = (
+            Rotation.from_matrix(Rot).as_quat()
+        )
+
+        if self.controller_running and self.paused:
+            status = "PAUSED"
+
+        elif self.controller_running:
+            status = "EXECUTING"
+
+        elif self.playing:
+            status = "REPLAYING"
+
+        elif self.sequence_running:
+            status = "BETWEEN COMMANDS"
+
+        else:
+            status = "REVIEW"
+
+        if gripper_event:
+
+            action = (
+                "GRIPPER CLOSE"
+                if gripper_angle >= GRIPPER_CLOSED
+                else "GRIPPER OPEN"
+            )
+
+        elif command["type"] == "MOVE_TO":
+            action = "MOVE TO TARGET"
+
+        else:
+            action = command["type"]
+
+        qstart = ", ".join(
+            f"{value:.1f}"
+            for value in command["qstart"]
+        )
+
+        qend = ", ".join(
+            f"{value:.1f}"
+            for value in command["qend"]
+        )
+
+        move_number = "-"
+
+        if command["move_number"] is not None:
+
+            move_number = (
+                f"{command['move_number']}"
+                f" / {command['move_total']}"
+            )
+
+        panel = [
+            "COMMAND SEQUENCE",
+            f"Command       : {command['type']}",
+            f"Action        : {action}",
+            f"Sequence step : {command['number']} / {command['total']}",
+            f"MOVE_TO number: {move_number}",
+            f"Status        : {status}",
+            f"Timeline frame: {global_frame + 1} / {self.total_frames}",
+            f"Command frame : {ii + 1} / {command['q'].shape[1]}",
+            "",
+            "COMMAND POSITIONS (DEG)",
+            f"Original q : [{qstart}]",
+            f"Desired q  : [{qend}]",
+            "",
+            "CURRENT JOINT ANGLES (DEG)",
+            *[
+                f"Joint {jj + 1}       : {angle:8.2f}"
+                for jj, angle in enumerate(q)
+            ],
+            "",
+            "END EFFECTOR POSITION",
+            f"X             : {Pot[0]:8.4f} m",
+            f"Y             : {Pot[1]:8.4f} m",
+            f"Z             : {Pot[2]:8.4f} m",
+            "",
+            "END EFFECTOR ORIENTATION (ZYX)",
+            f"Roll          : {roll:8.2f} deg",
+            f"Pitch         : {pitch:8.2f} deg",
+            f"Yaw           : {yaw:8.2f} deg",
+            "",
+            "GRIPPER",
+            f"Servo angle   : {gripper_angle:8.1f} deg",
+            f"Jaw gap (est.): {gap * 1000:8.1f} mm",
+            f"State         : {'CLOSED' if gripper_angle >= GRIPPER_CLOSED else 'OPEN'}",
+            "",
+            "ROTATION MATRIX",
+            *[
+                "  " + "  ".join(
+                    f"{value: .3f}"
+                    for value in row
+                )
+                for row in Rot
+            ],
+            "",
+            "QUATERNION (X, Y, Z, W)",
+            "  " + ", ".join(
+                f"{value:.3f}"
+                for value in quaternion
+            )
+        ]
+
+        self.info_text.set_text(
+            "\n".join(panel)
+        )
+
+
+    # ==========================================
+    # PROCESS EVENTS
+    # ==========================================
+
+    def process_events(self, duration=0.001):
+
+        if not self.initialized:
+            return
+
+        if plt.fignum_exists(self.fig.number):
+
+            plt.pause(
+                max(duration, 0.001)
+            )
+
+
+    # ==========================================
+    # WAIT IF PAUSED
+    # ==========================================
+
+    def wait_if_paused(self):
+
+        if not self.paused:
+            return 0.0
+
+        if not self.controller_running:
+            return 0.0
+
+        pause_start = time.monotonic()
+
+        while (
+            self.paused
+            and plt.fignum_exists(self.fig.number)
+        ):
+
+            self.process_events(0.01)
+
+        return (
+            time.monotonic() - pause_start
+        )
+
+
+    # ==========================================
+    # SLIDER CONTROL
+    # ==========================================
 
     def slider_changed(self, value):
 
         if self.updating_slider:
             return
 
-        if self.playing:
-
-            self.playing = False
-            self.timer.stop()
-
-            self.play_button.label.set_text("Play")
-
-        self.draw_robot(int(value))
-
-    # ======================================
-    # PLAYBACK
-    # ======================================
-
-    def advance_frame(self):
-
-        if self.N == 0:
+        if self.sequence_running:
             return
 
-        current = int(self.frame_slider.val)
+        self.render(
+            int(value)
+        )
 
-        if current >= self.N - 1:
-            self.frame_slider.set_val(0)
-        else:
-            self.frame_slider.set_val(current + 1)
+
+    # ==========================================
+    # PLAY / PAUSE CONTROL
+    # ==========================================
 
     def toggle_play(self, event):
+
+        # Live simulation
+        if self.sequence_running:
+
+            if self.controller_running:
+
+                self.paused = not self.paused
+
+                self.play_button.label.set_text(
+                    "Resume" if self.paused else "Pause"
+                )
+
+                self.render(self.global_frame)
+
+            return
+
+        # Recorded history replay
+        if not self.history:
+            return
 
         self.playing = not self.playing
 
         if self.playing:
 
-            self.play_button.label.set_text("Pause")
+            if self.global_frame >= self.total_frames - 1:
+                self.render(0)
+
+            self.play_button.label.set_text(
+                "Pause Replay"
+            )
+
             self.timer.start()
 
         else:
 
-            self.play_button.label.set_text("Play")
             self.timer.stop()
 
-    # ======================================
-    # RESET
-    # ======================================
+            self.play_button.label.set_text(
+                "Replay"
+            )
 
-    def reset_frame(self, event):
+        self.render(self.global_frame)
+
+
+    # ==========================================
+    # REPLAY TIMER
+    # ==========================================
+
+    def advance_frame(self):
+
+        if not self.playing:
+            return
+
+        if self.sequence_running:
+            return
+
+        if self.global_frame >= self.total_frames - 1:
+
+            self.stop_replay()
+            self.render(self.global_frame)
+
+        else:
+
+            self.render(
+                self.global_frame + 1
+            )
+
+
+    # ==========================================
+    # STOP REPLAY
+    # ==========================================
+
+    def stop_replay(self):
 
         self.playing = False
-        self.timer.stop()
 
-        self.play_button.label.set_text("Play")
+        if self.timer is not None:
+            self.timer.stop()
 
-        self.frame_slider.set_val(0)
+        self.play_button.label.set_text(
+            "Replay"
+        )
+
+
+    # ==========================================
+    # FIRST FRAME
+    # ==========================================
+
+    def first_frame(self, event):
+
+        if self.sequence_running:
+            return
+
+        self.stop_replay()
+
+        if self.history:
+            self.render(0)
+
+
+    # ==========================================
+    # PREVIOUS COMMAND
+    # ==========================================
+
+    def previous_command(self, event):
+
+        if self.sequence_running or not self.history:
+            return
+
+        self.stop_replay()
+
+        _, index, _, _, _ = (
+            self.lookup_frame(self.global_frame)
+        )
+
+        if self.global_frame == self.starts[index]:
+            index -= 1
+
+        index = max(0, index)
+
+        self.render(
+            self.starts[index]
+        )
+
+
+    # ==========================================
+    # NEXT COMMAND
+    # ==========================================
+
+    def next_command(self, event):
+
+        if self.sequence_running or not self.history:
+            return
+
+        self.stop_replay()
+
+        _, index, _, _, _ = (
+            self.lookup_frame(self.global_frame)
+        )
+
+        index = min(
+            index + 1,
+            len(self.history) - 1
+        )
+
+        self.render(
+            self.starts[index]
+        )
+
+
+    # ==========================================
+    # PATH CONTROL
+    # ==========================================
+
+    def toggle_path(self, event):
+
+        self.show_path = not self.show_path
+
+        self.path_button.label.set_text(
+            "Hide Path"
+            if self.show_path
+            else "Show Path"
+        )
+
+        self.render(
+            self.global_frame
+        )
 
 
 # ==========================================
@@ -544,8 +1231,20 @@ if __name__ == "__main__":
 
     visualizer = DofbotVisualizer()
 
-    visualizer.start()
+    try:
 
-    main.run_commands(visualizer)
+        main.run_commands(
+            visualizer
+        )
 
-    plt.show()
+        plt.show()
+
+    except KeyboardInterrupt:
+
+        print(
+            "\nVisualization stopped by user."
+        )
+
+    finally:
+
+        plt.close("all")

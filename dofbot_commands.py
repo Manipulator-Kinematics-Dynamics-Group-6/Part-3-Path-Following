@@ -11,7 +11,6 @@ PICK_AND_PLACE = [
 
 
 TEST_SEQUENCE = [
-    ("MOVE_TO", [90, 90, 90, 90, 90]),
     ("MOVE_TO", [45, 120, 140, 100, 95]),
     ("MOVE_TO", [90, 90, 90, 90, 90])
 ]
