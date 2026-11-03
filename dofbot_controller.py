@@ -44,6 +44,8 @@ GRIPPER_ID = 6
 GRIPPER_OPEN = 60
 GRIPPER_CLOSED = 130
 
+GRIPPER_WAIT = 1.5
+
 
 # ==========================================
 # SIMULATED ROBOT STATE
@@ -138,46 +140,59 @@ def get_joint_angles(desired=None):
 # GRIPPER CONTROL
 # ==========================================
 
-# Opens or closes the gripper to a specified servo angle.
-def command_gripper(angle, movement_time=1000):
+# Commands the gripper and waits for the movement to complete.
+def command_gripper(angle, movement_time=1000, visualizer=None):
 
     global simulated_gripper
 
     if not 0 <= angle <= 180:
-
         raise ValueError(
             "Gripper angle must be between 0 and 180."
         )
 
     if TEST:
-
         simulated_gripper = float(angle)
 
         if angle >= GRIPPER_CLOSED:
-
             print("Gripper closed")
 
         elif angle <= GRIPPER_OPEN:
-
             print("Gripper opened")
 
     else:
-
         arm.Arm_serial_servo_write(
             GRIPPER_ID,
             angle,
             movement_time
         )
 
+    # ==================================
+    # WAIT FOR GRIPPER
+    # ==================================
+
+    wait_time = max(
+        GRIPPER_WAIT,
+        movement_time / 1000
+    )
+
+    if visualizer is not None:
+        end_time = time.monotonic() + wait_time
+
+        while time.monotonic() < end_time:
+            visualizer.process_events()
+            time.sleep(0.01)
+
+    else:
+        time.sleep(wait_time)
+
+
 # Returns the current gripper servo angle.
 def get_gripper_angle():
 
     if TEST:
-
         return simulated_gripper
 
     else:
-
         angle = arm.Arm_serial_servo_read(
             GRIPPER_ID
         )

@@ -20,6 +20,8 @@
 # ==========================================
 
 
+import time
+
 import numpy as np
 
 import dofbot_kinematics as kinematics
@@ -31,6 +33,8 @@ import dofbot_commands as command_data
 # EXECUTE COMMAND SEQUENCE
 # ==========================================
 
+# Executes the active command sequence using the selected robot backend.
+# Coordinates trajectory generation, gripper actions, and visualization.
 def run_commands(visualizer=None):
 
     # Initial robot states
@@ -156,13 +160,11 @@ def run_commands(visualizer=None):
 
                 # Command gripper only
                 if command_type == "GRAB":
-
                     controller.command_gripper(
                         controller.GRIPPER_CLOSED
                     )
 
                 else:
-
                     controller.command_gripper(
                         controller.GRIPPER_OPEN
                     )
