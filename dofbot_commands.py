@@ -22,14 +22,19 @@ PICK_AND_PLACE = [
     ("DROP", None)
 ]
 
-
 TEST_SEQUENCE = [
     ("MOVE_TO", [45, 120, 140, 100, 95]),
     ("MOVE_TO", [90, 90, 90, 90, 90])
 ]
 
 RESET = [
-    ("MOVE_TO", [90, 90, 90, 90, 90])
+    ("MOVE_TO", [90, 90, 90, 90, 90]),
+    ("DROP", None)
+]
+
+RESET_OTHER = [
+    ("MOVE_TO", [45, 120, 140, 100, 95])
+    ("GRAB", None)
 ]
 
 
