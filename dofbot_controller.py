@@ -35,7 +35,7 @@ import dofbot_kinematics as kinematics
 # ==========================================
 
 # True if only simulating outputs 
-TEST = False
+TEST = True
 
 # Total time for each movement (seconds)
 TOTAL_TIME = 10.0
@@ -499,268 +499,268 @@ def execute_trajectory(gripper_state, visualizer=None):
 # MAIN - CONTROLLER TEST
 # ==========================================
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
 
-#     # ==========================================
-#     # TEST CONFIGURATIONS
-#     # ==========================================
+    # ==========================================
+    # TEST CONFIGURATIONS
+    # ==========================================
 
-#     qstart = np.array(
-#         [90, 90, 90, 90, 90],
-#         dtype=float
-#     )
+    qstart = np.array(
+        [90, 90, 90, 90, 90],
+        dtype=float
+    )
 
-#     qend = np.array(
-#         [45, 120, 140, 100, 95],
-#         dtype=float
-#     )
+    qend = np.array(
+        [45, 120, 140, 100, 95],
+        dtype=float
+    )
 
-#     print("\n==========================================")
-#     print("DOFBOT CONTROLLER TEST")
-#     print("==========================================")
+    print("\n==========================================")
+    print("DOFBOT CONTROLLER TEST")
+    print("==========================================")
 
-#     # Prevent accidental hardware movement
-#     assert TEST, (
-#         "Controller tests require TEST = True."
-#     )
+    # Prevent accidental hardware movement
+    assert TEST, (
+        "Controller tests require TEST = True."
+    )
 
-#     # ==========================================
-#     # RESET SIMULATED ROBOT STATE
-#     # ==========================================
+    # ==========================================
+    # RESET SIMULATED ROBOT STATE
+    # ==========================================
 
-#     simulated_q = qstart.copy()
-#     simulated_gripper = GRIPPER_OPEN
+    simulated_q = qstart.copy()
+    simulated_gripper = GRIPPER_OPEN
 
-#     # ==========================================
-#     # TEST 1 - INITIAL ROBOT STATE
-#     # ==========================================
+    # ==========================================
+    # TEST 1 - INITIAL ROBOT STATE
+    # ==========================================
 
-#     print("\nTEST 1: Initial robot state")
+    print("\nTEST 1: Initial robot state")
 
-#     actual_q = get_joint_angles()
-#     actual_gripper = get_gripper_angle()
+    actual_q = get_joint_angles()
+    actual_gripper = get_gripper_angle()
 
-#     assert np.allclose(
-#         actual_q,
-#         qstart
-#     ), (
-#         f"Initial joint positions incorrect: {actual_q}"
-#     )
+    assert np.allclose(
+        actual_q,
+        qstart
+    ), (
+        f"Initial joint positions incorrect: {actual_q}"
+    )
 
-#     assert np.isclose(
-#         actual_gripper,
-#         GRIPPER_OPEN
-#     ), (
-#         f"Initial gripper angle incorrect: {actual_gripper}"
-#     )
+    assert np.isclose(
+        actual_gripper,
+        GRIPPER_OPEN
+    ), (
+        f"Initial gripper angle incorrect: {actual_gripper}"
+    )
 
-#     print("PASS: Initial robot state")
+    print("PASS: Initial robot state")
 
 
-#     # ==========================================
-#     # TEST 2 - JOINT COMMAND
-#     # ==========================================
+    # ==========================================
+    # TEST 2 - JOINT COMMAND
+    # ==========================================
 
-#     print("\nTEST 2: Joint command")
+    print("\nTEST 2: Joint command")
 
-#     command_robot(
-#         qend,
-#         GRIPPER_OPEN
-#     )
+    command_robot(
+        qend,
+        GRIPPER_OPEN
+    )
 
-#     actual_q = get_joint_angles()
+    actual_q = get_joint_angles()
 
-#     assert np.allclose(
-#         actual_q,
-#         qend
-#     ), (
-#         f"Joint command failed. "
-#         f"Expected: {qend}, Actual: {actual_q}"
-#     )
+    assert np.allclose(
+        actual_q,
+        qend
+    ), (
+        f"Joint command failed. "
+        f"Expected: {qend}, Actual: {actual_q}"
+    )
 
-#     print("PASS: Joint command")
+    print("PASS: Joint command")
 
 
-#     # ==========================================
-#     # TEST 3 - JOINT POSITION FEEDBACK
-#     # ==========================================
+    # ==========================================
+    # TEST 3 - JOINT POSITION FEEDBACK
+    # ==========================================
 
-#     print("\nTEST 3: Joint position feedback")
+    print("\nTEST 3: Joint position feedback")
 
-#     reached = wait_for_joints(
-#         qend
-#     )
+    reached = wait_for_joints(
+        qend
+    )
 
-#     assert reached, (
-#         "Joint position verification failed."
-#     )
+    assert reached, (
+        "Joint position verification failed."
+    )
 
-#     print("PASS: Joint position feedback")
+    print("PASS: Joint position feedback")
 
 
-#     # ==========================================
-#     # TEST 4 - TRAJECTORY GENERATION
-#     # ==========================================
-
-#     print("\nTEST 4: Trajectory generation")
-
-#     kinematics.generate_trajectory(
-#         qstart,
-#         qend
-#     )
-
-#     assert kinematics.q.shape == (
-#         5,
-#         kinematics.N
-#     ), (
-#         "Generated trajectory has incorrect dimensions."
-#     )
+    # ==========================================
+    # TEST 4 - TRAJECTORY GENERATION
+    # ==========================================
+
+    print("\nTEST 4: Trajectory generation")
+
+    kinematics.generate_trajectory(
+        qstart,
+        qend
+    )
+
+    assert kinematics.q.shape == (
+        5,
+        kinematics.N
+    ), (
+        "Generated trajectory has incorrect dimensions."
+    )
 
-#     assert np.allclose(
-#         kinematics.q[:, 0],
-#         qstart
-#     ), (
-#         "Trajectory does not start at qstart."
-#     )
+    assert np.allclose(
+        kinematics.q[:, 0],
+        qstart
+    ), (
+        "Trajectory does not start at qstart."
+    )
 
-#     assert np.allclose(
-#         kinematics.q[:, -1],
-#         qend
-#     ), (
-#         "Trajectory does not end at qend."
-#     )
-
-#     assert np.all(
-#         np.isfinite(kinematics.q)
-#     ), (
-#         "Trajectory contains invalid numerical values."
-#     )
+    assert np.allclose(
+        kinematics.q[:, -1],
+        qend
+    ), (
+        "Trajectory does not end at qend."
+    )
+
+    assert np.all(
+        np.isfinite(kinematics.q)
+    ), (
+        "Trajectory contains invalid numerical values."
+    )
 
-#     print("PASS: Trajectory generation")
+    print("PASS: Trajectory generation")
 
 
-#     # ==========================================
-#     # TEST 5 - TRAJECTORY EXECUTION
-#     # ==========================================
+    # ==========================================
+    # TEST 5 - TRAJECTORY EXECUTION
+    # ==========================================
 
-#     print("\nTEST 5: Trajectory execution")
+    print("\nTEST 5: Trajectory execution")
 
-#     # Reset simulated robot to initial configuration
-#     simulated_q = qstart.copy()
+    # Reset simulated robot to initial configuration
+    simulated_q = qstart.copy()
 
-#     execute_trajectory(
-#         GRIPPER_OPEN
-#     )
+    execute_trajectory(
+        GRIPPER_OPEN
+    )
 
-#     actual_q = get_joint_angles()
+    actual_q = get_joint_angles()
 
-#     joint_error = np.abs(
-#         qend - actual_q
-#     )
+    joint_error = np.abs(
+        qend - actual_q
+    )
 
-#     assert np.all(
-#         joint_error <= JOINT_POSITION_TOL
-#     ), (
-#         f"Trajectory execution failed. "
-#         f"Joint errors: {joint_error}"
-#     )
+    assert np.all(
+        joint_error <= JOINT_POSITION_TOL
+    ), (
+        f"Trajectory execution failed. "
+        f"Joint errors: {joint_error}"
+    )
 
-#     print("PASS: Trajectory execution")
+    print("PASS: Trajectory execution")
 
 
-#     # ==========================================
-#     # TEST 6 - FORWARD KINEMATICS
-#     # ==========================================
+    # ==========================================
+    # TEST 6 - FORWARD KINEMATICS
+    # ==========================================
 
-#     print("\nTEST 6: Forward kinematics")
+    print("\nTEST 6: Forward kinematics")
 
-#     Rot, Pot = kinematics.fwdkin_Dofbot(
-#         actual_q
-#     )
+    Rot, Pot = kinematics.fwdkin_Dofbot(
+        actual_q
+    )
 
-#     assert Rot.shape == (3, 3), (
-#         "Rotation matrix has incorrect dimensions."
-#     )
+    assert Rot.shape == (3, 3), (
+        "Rotation matrix has incorrect dimensions."
+    )
 
-#     assert Pot.shape == (3,), (
-#         "End-effector position has incorrect dimensions."
-#     )
+    assert Pot.shape == (3,), (
+        "End-effector position has incorrect dimensions."
+    )
 
-#     assert np.allclose(
-#         Rot.T @ Rot,
-#         np.eye(3),
-#         atol=1e-6
-#     ), (
-#         "Rotation matrix is not orthogonal."
-#     )
+    assert np.allclose(
+        Rot.T @ Rot,
+        np.eye(3),
+        atol=1e-6
+    ), (
+        "Rotation matrix is not orthogonal."
+    )
 
-#     assert np.isclose(
-#         np.linalg.det(Rot),
-#         1.0,
-#         atol=1e-6
-#     ), (
-#         "Rotation matrix has invalid determinant."
-#     )
+    assert np.isclose(
+        np.linalg.det(Rot),
+        1.0,
+        atol=1e-6
+    ), (
+        "Rotation matrix has invalid determinant."
+    )
 
-#     assert np.all(
-#         np.isfinite(Pot)
-#     ), (
-#         "End-effector position contains invalid values."
-#     )
+    assert np.all(
+        np.isfinite(Pot)
+    ), (
+        "End-effector position contains invalid values."
+    )
 
-#     print("PASS: Forward kinematics")
+    print("PASS: Forward kinematics")
 
 
-#     # ==========================================
-#     # TEST 7 - GRIPPER CLOSE
-#     # ==========================================
+    # ==========================================
+    # TEST 7 - GRIPPER CLOSE
+    # ==========================================
 
-#     print("\nTEST 7: Gripper close")
+    print("\nTEST 7: Gripper close")
 
-#     command_gripper(
-#         GRIPPER_CLOSED
-#     )
+    command_gripper(
+        GRIPPER_CLOSED
+    )
 
-#     actual_gripper = get_gripper_angle()
+    actual_gripper = get_gripper_angle()
 
-#     assert abs(
-#         GRIPPER_CLOSED - actual_gripper
-#     ) <= GRIPPER_POSITION_TOL, (
-#         f"Gripper failed to close. "
-#         f"Expected: {GRIPPER_CLOSED}, "
-#         f"Actual: {actual_gripper}"
-#     )
+    assert abs(
+        GRIPPER_CLOSED - actual_gripper
+    ) <= GRIPPER_POSITION_TOL, (
+        f"Gripper failed to close. "
+        f"Expected: {GRIPPER_CLOSED}, "
+        f"Actual: {actual_gripper}"
+    )
 
-#     print("PASS: Gripper close")
+    print("PASS: Gripper close")
 
 
-#     # ==========================================
-#     # TEST 8 - GRIPPER OPEN
-#     # ==========================================
+    # ==========================================
+    # TEST 8 - GRIPPER OPEN
+    # ==========================================
 
-#     print("\nTEST 8: Gripper open")
+    print("\nTEST 8: Gripper open")
 
-#     command_gripper(
-#         GRIPPER_OPEN
-#     )
+    command_gripper(
+        GRIPPER_OPEN
+    )
 
-#     actual_gripper = get_gripper_angle()
+    actual_gripper = get_gripper_angle()
 
-#     assert abs(
-#         GRIPPER_OPEN - actual_gripper
-#     ) <= GRIPPER_POSITION_TOL, (
-#         f"Gripper failed to open. "
-#         f"Expected: {GRIPPER_OPEN}, "
-#         f"Actual: {actual_gripper}"
-#     )
+    assert abs(
+        GRIPPER_OPEN - actual_gripper
+    ) <= GRIPPER_POSITION_TOL, (
+        f"Gripper failed to open. "
+        f"Expected: {GRIPPER_OPEN}, "
+        f"Actual: {actual_gripper}"
+    )
 
-#     print("PASS: Gripper open")
+    print("PASS: Gripper open")
 
 
-#     # ==========================================
-#     # TEST COMPLETE
-#     # ==========================================
+    # ==========================================
+    # TEST COMPLETE
+    # ==========================================
 
-#     print("\n==========================================")
-#     print("ALL CONTROLLER TESTS PASSED")
-#     print("==========================================")
+    print("\n==========================================")
+    print("ALL CONTROLLER TESTS PASSED")
+    print("==========================================")
