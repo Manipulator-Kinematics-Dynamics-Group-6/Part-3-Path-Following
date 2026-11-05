@@ -21,9 +21,8 @@
 
 
 import time
-
 import numpy as np
-
+import import_ipynb # only needed if running with IPYNB files on Jupyter, comment out otherwise 
 import dofbot_kinematics as kinematics
 import dofbot_controller as controller
 import dofbot_commands as command_data
