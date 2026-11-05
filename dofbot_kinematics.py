@@ -10,7 +10,8 @@ from scipy.spatial.transform import Rotation
 # TRAJECTORY SETTINGS
 # ==========================================
 
-N = 100
+# N = 100
+N = 20
 lam = np.linspace(0, 1, N)
 
 
