@@ -38,7 +38,7 @@ import dofbot_kinematics as kinematics
 TEST = False
 
 # Total time for each movement (seconds)
-TOTAL_TIME = 10.0
+TOTAL_TIME = 3
 
 # Gripper constants
 GRIPPER_ID = 6
@@ -231,6 +231,8 @@ def get_joint_angles():
         return simulated_q.copy()
 
     else:
+        time.sleep(.01)
+        
         angles = []
 
         for joint in range(1, 6):
@@ -240,9 +242,10 @@ def get_joint_angles():
             )
 
             if angle is None:
-#                 raise RuntimeError(
-#                     f"Could not read servo {joint}."
-#                 )
+                raise RuntimeError(
+                    f"Could not read servo {joint}."
+                )
+#                 print("Could not read servo " + joint + ".")
 
             angles.append(angle)
 
@@ -334,6 +337,8 @@ def get_gripper_angle():
         return simulated_gripper
 
     else:
+        time.sleep(.01)
+        
         angle = arm.Arm_serial_servo_read(
             GRIPPER_ID
         )
@@ -455,6 +460,8 @@ def execute_trajectory(gripper_state, visualizer=None):
 
             print(
                 f"Frame {ii + 1}/{kinematics.N} | "
+                f"Desired Angles: {kinematics.q[:, ii]} | "
+                f"Actual Angles: {get_joint_angles()} | "
                 f"Time: {ii * dt:.2f}s"
             )
 
