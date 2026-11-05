@@ -28,9 +28,13 @@ TEST_SEQUENCE = [
     ("MOVE_TO", [90, 90, 90, 90, 90])
 ]
 
+RESET = [
+    ("MOVE_TO", [90, 90, 90, 90, 90])
+]
+
 
 # ==========================================
 # SELECT ACTIVE COMMAND SEQUENCE
 # ==========================================
 
-ACTIVE_SEQUENCE = PICK_AND_PLACE
+ACTIVE_SEQUENCE = RESET
