@@ -19,13 +19,14 @@
 #
 # ==========================================
 
+# only needed if running with IPYNB files on Jupyter, comment out otherwise 
+# import import_ipynb 
 
 import time
 import numpy as np
-import import_ipynb # only needed if running with IPYNB files on Jupyter, comment out otherwise 
 import dofbot_kinematics as kinematics
 import dofbot_controller as controller
-import dofbot_commands as command_data
+import constants as const
 
 
 # ==========================================
@@ -45,7 +46,7 @@ def run_commands(visualizer=None):
     )
 
     # Command sequence information
-    sequence = command_data.ACTIVE_SEQUENCE
+    sequence = const.ACTIVE_SEQUENCE
 
     total_commands = len(sequence)
 
