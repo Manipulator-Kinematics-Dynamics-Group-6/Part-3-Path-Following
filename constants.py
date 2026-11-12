@@ -4,10 +4,12 @@ import numpy as np
 # TRAJECTORY SETTINGS
 # ==========================================
 
-# N = 100
-N = 20
+N = 100
 lam = np.linspace(0, 1, N)
 
+# Record feedback every 5 trajectory frames.
+# This reduces hardware communication overhead.
+TRACKING_INTERVAL = 5
 
 # ==========================================
 # LINK LENGTHS (METERS)
@@ -55,7 +57,7 @@ IK_ATTEMPTS = 24
 # ==========================================
 
 # True if only simulating outputs 
-TEST = False
+TEST = True
 
 # Total time for each movement (seconds)
 TOTAL_TIME = 3
@@ -114,7 +116,7 @@ RESET = [
 ]
 
 RESET_OTHER = [
-    ("MOVE_TO", [45, 120, 140, 100, 95])
+    ("MOVE_TO", [45, 120, 140, 100, 95]),
     ("GRAB", None)
 ]
 

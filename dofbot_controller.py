@@ -167,7 +167,7 @@ def command_robot(joint_angles, gripper_angle, movement_time=2500):
 
     if const.TEST:
         # Update simulated joint positions
-        simulated_q = joint_angles.copy()
+        const.simulated_q = joint_angles.copy()
 
         # Update simulated gripper position
         simulated_gripper = float(gripper_angle)
@@ -184,7 +184,7 @@ def command_robot(joint_angles, gripper_angle, movement_time=2500):
 def get_joint_angles():
 
     if const.TEST:
-        return simulated_q.copy()
+        return const.simulated_q.copy()
 
     else:
         time.sleep(.01)
@@ -264,7 +264,7 @@ def command_gripper(angle, movement_time=1000, visualizer=None):
 
     if const.TEST:
 
-        simulated_gripper = float(angle)
+        const.simulated_gripper = float(angle)
 
     else:
 
@@ -290,7 +290,7 @@ def command_gripper(angle, movement_time=1000, visualizer=None):
 def get_gripper_angle():
 
     if const.TEST:
-        return simulated_gripper
+        return const.simulated_gripper
 
     else:
         time.sleep(.01)
@@ -313,10 +313,10 @@ def get_gripper_angle():
 
 # Executes the generated joint trajectory at fixed time intervals.
 # Supports pausing and resuming through the visualizer.
-def execute_trajectory(gripper_state, visualizer=None):
+def execute_trajectory(gripper_state, visualizer=None, tracking=None):
 
     # Time between trajectory samples
-    dt = const.TOTAL_TIME / (kinematics.N - 1)
+    dt = const.TOTAL_TIME / (const.N - 1)
 
     # Servo movement duration in milliseconds
     movement_time = max(
@@ -325,7 +325,7 @@ def execute_trajectory(gripper_state, visualizer=None):
     )
 
     print("Starting DOFBOT trajectory...")
-    print(f"Trajectory points: {kinematics.N}")
+    print(f"Trajectory points: {const.N}")
     print(f"Total movement time: {const.TOTAL_TIME} seconds")
 
     start_time = time.monotonic()
@@ -334,7 +334,7 @@ def execute_trajectory(gripper_state, visualizer=None):
     paused_duration = 0.0
 
     try:
-        for ii in range(kinematics.N):
+        for ii in range(const.N):
 
             # ==================================
             # PROCESS VISUALIZER EVENTS
@@ -399,14 +399,30 @@ def execute_trajectory(gripper_state, visualizer=None):
                 gripper_state,
                 movement_time
             )
+            
+            # ==================================
+            # RECORD TRAJECTORY TRACKING
+            # ==================================
 
+            if tracking is not None:
+
+                if (
+                    ii % const.TRACKING_INTERVAL == 0
+                    or ii == const.N - 1
+                ):
+
+                    actual_q = get_joint_angles()
+
+                    tracking.record(
+                        desired_q,
+                        actual_q
+                    )
 
             # ==================================
             # UPDATE VISUALIZATION
             # ==================================
 
             if visualizer is not None:
-
                 visualizer.update(ii)
 
 
@@ -415,7 +431,7 @@ def execute_trajectory(gripper_state, visualizer=None):
             # ==================================
 
             print(
-                f"Frame {ii + 1}/{kinematics.N} | "
+                f"Frame {ii + 1}/{const.N} | "
                 f"Desired Angles: {kinematics.q[:, ii]} | "
                 f"Actual Angles: {get_joint_angles()} | "
                 f"Time: {ii * dt:.2f}s"
