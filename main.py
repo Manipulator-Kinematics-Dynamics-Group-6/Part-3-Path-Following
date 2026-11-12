@@ -19,14 +19,17 @@
 #
 # ==========================================
 
+# only needed if running with IPYNB files on Jupyter, comment out otherwise 
+# import import_ipynb 
+# %matplotlib widget
 
 import time
-
 import numpy as np
-
 import dofbot_kinematics as kinematics
 import dofbot_controller as controller
-import dofbot_commands as command_data
+import constants as const
+import dofbot_tracking as tracking_data
+import matplotlib.pyplot as plt
 
 
 # ==========================================
@@ -44,9 +47,15 @@ def run_commands(visualizer=None):
         controller.get_joint_angles(),
         dtype=float
     )
+    
+    # ==========================================
+    # TRAJECTORY TRACKING
+    # ==========================================
+
+    tracking = tracking_data.TrajectoryRecorder()
 
     # Command sequence information
-    sequence = command_data.ACTIVE_SEQUENCE
+    sequence = const.ACTIVE_SEQUENCE
 
     total_commands = len(sequence)
 
@@ -124,7 +133,6 @@ def run_commands(visualizer=None):
 
                 # Record movement in visualization
                 if visualizer is not None:
-
                     visualizer.new_command(
                         command_type,
                         gripper_state,
@@ -134,10 +142,13 @@ def run_commands(visualizer=None):
                         move_total=total_moves
                     )
 
+                tracking.begin_command(move_number)
+
                 # Execute joint-space trajectory
                 controller.execute_trajectory(
                     gripper_state,
-                    visualizer
+                    visualizer,
+                    tracking=tracking
                 )
 
             # ==================================
@@ -161,13 +172,13 @@ def run_commands(visualizer=None):
                 # Command gripper only
                 if command_type == "GRAB":
                     controller.command_gripper(
-                        controller.GRIPPER_CLOSED,
+                        const.GRIPPER_CLOSED,
                         visualizer=visualizer
                     )
 
                 elif command_type == "DROP":
                     controller.command_gripper(
-                        controller.GRIPPER_OPEN,
+                        const.GRIPPER_OPEN,
                         visualizer=visualizer
                     )
 
@@ -195,6 +206,13 @@ def run_commands(visualizer=None):
 
         if visualizer is not None:
             visualizer.end_sequence()
+        
+        # ==========================================
+        # DISPLAY TRACKING GRAPHS
+        # ==========================================
+
+        tracking.plot()
+        plt.show()
 
     # ==========================================
     # FINISHED

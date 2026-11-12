@@ -22,11 +22,11 @@
 #
 # ==========================================
 
+# only needed if running with IPYNB files on Jupyter, comment out otherwise 
+# import import_ipynb  
 
 import numpy as np
 import time
-import import_ipynb # only needed if running with IPYNB files on Jupyter, comment out otherwise  
-
 import dofbot_kinematics as kinematics
         
 
@@ -78,7 +78,7 @@ JOINT_FEEDBACK_INTERVAL = 0.05
 # HARDWARE CONNECTION
 # ==========================================
 
-if not TEST:
+if not const.TEST:
     from Arm_Lib import Arm_Device
 
     arm = Arm_Device()
@@ -134,7 +134,7 @@ def wait_for_joints(target_angles, visualizer=None):
 
         # Check all five joints
         reached = np.all(
-            error <= JOINT_POSITION_TOL
+            error <= const.JOINT_POSITION_TOL
         )
 
         if reached:
@@ -161,7 +161,7 @@ def wait_for_joints(target_angles, visualizer=None):
             time.monotonic() - start_time
         )
 
-        if elapsed >= JOINT_POSITION_TIMEOUT:
+        if elapsed >= const.JOINT_POSITION_TIMEOUT:
 
             print(
                 "Joint position timeout!"
@@ -190,7 +190,7 @@ def wait_for_joints(target_angles, visualizer=None):
             visualizer.process_events()
 
         time.sleep(
-            JOINT_FEEDBACK_INTERVAL
+            const.JOINT_FEEDBACK_INTERVAL
         )
 
 
@@ -209,9 +209,9 @@ def command_robot(joint_angles, gripper_angle, movement_time=2500):
             "Joint angles must contain exactly 5 values."
         )
 
-    if TEST:
+    if const.TEST:
         # Update simulated joint positions
-        simulated_q = joint_angles.copy()
+        const.simulated_q = joint_angles.copy()
 
         # Update simulated gripper position
         simulated_gripper = float(gripper_angle)
@@ -227,10 +227,12 @@ def command_robot(joint_angles, gripper_angle, movement_time=2500):
 # Reads the current joint angles from the simulation or hardware.
 def get_joint_angles():
 
-    if TEST:
-        return simulated_q.copy()
+    if const.TEST:
+        return const.simulated_q.copy()
 
     else:
+        time.sleep(.01)
+        
         angles = []
 
         for joint in range(1, 6):
@@ -240,9 +242,10 @@ def get_joint_angles():
             )
 
             if angle is None:
-#                 raise RuntimeError(
-#                     f"Could not read servo {joint}."
-#                 )
+                raise RuntimeError(
+                    f"Could not read servo {joint}."
+                )
+#                 print("Could not read servo " + joint + ".")
 
             angles.append(angle)
 
@@ -267,7 +270,7 @@ def wait_for_gripper(target_angle, visualizer=None):
 
         error = abs(target_angle - current_angle)
 
-        if error <= GRIPPER_POSITION_TOL:
+        if error <= const.GRIPPER_POSITION_TOL:
 
             print(
                 f"Gripper reached target: "
@@ -276,7 +279,7 @@ def wait_for_gripper(target_angle, visualizer=None):
 
             return True
 
-        if time.monotonic() - start_time >= GRIPPER_POSITION_TIMEOUT:
+        if time.monotonic() - start_time >= const.GRIPPER_POSITION_TIMEOUT:
 
             print(
                 f"Gripper timeout! "
@@ -290,7 +293,7 @@ def wait_for_gripper(target_angle, visualizer=None):
 
             visualizer.process_events()
 
-        time.sleep(GRIPPER_FEEDBACK_INTERVAL)
+        time.sleep(const.GRIPPER_FEEDBACK_INTERVAL)
 
 # Commands the gripper and waits for position feedback.
 def command_gripper(angle, movement_time=1000, visualizer=None):
@@ -303,14 +306,14 @@ def command_gripper(angle, movement_time=1000, visualizer=None):
             "Gripper angle must be between 0 and 180."
         )
 
-    if TEST:
+    if const.TEST:
 
-        simulated_gripper = float(angle)
+        const.simulated_gripper = float(angle)
 
     else:
 
         arm.Arm_serial_servo_write(
-            GRIPPER_ID,
+            const.GRIPPER_ID,
             angle,
             movement_time
         )
@@ -330,12 +333,14 @@ def command_gripper(angle, movement_time=1000, visualizer=None):
 # Returns the current gripper servo angle.
 def get_gripper_angle():
 
-    if TEST:
-        return simulated_gripper
+    if const.TEST:
+        return const.simulated_gripper
 
     else:
+        time.sleep(.01)
+        
         angle = arm.Arm_serial_servo_read(
-            GRIPPER_ID
+            const.GRIPPER_ID
         )
 
         if angle is None:
@@ -352,10 +357,10 @@ def get_gripper_angle():
 
 # Executes the generated joint trajectory at fixed time intervals.
 # Supports pausing and resuming through the visualizer.
-def execute_trajectory(gripper_state, visualizer=None):
+def execute_trajectory(gripper_state, visualizer=None, tracking=None):
 
     # Time between trajectory samples
-    dt = TOTAL_TIME / (kinematics.N - 1)
+    dt = const.TOTAL_TIME / (const.N - 1)
 
     # Servo movement duration in milliseconds
     movement_time = max(
@@ -364,8 +369,8 @@ def execute_trajectory(gripper_state, visualizer=None):
     )
 
     print("Starting DOFBOT trajectory...")
-    print(f"Trajectory points: {kinematics.N}")
-    print(f"Total movement time: {TOTAL_TIME} seconds")
+    print(f"Trajectory points: {const.N}")
+    print(f"Total movement time: {const.TOTAL_TIME} seconds")
 
     start_time = time.monotonic()
 
@@ -373,7 +378,7 @@ def execute_trajectory(gripper_state, visualizer=None):
     paused_duration = 0.0
 
     try:
-        for ii in range(kinematics.N):
+        for ii in range(const.N):
 
             # ==================================
             # PROCESS VISUALIZER EVENTS
@@ -438,14 +443,30 @@ def execute_trajectory(gripper_state, visualizer=None):
                 gripper_state,
                 movement_time
             )
+            
+            # ==================================
+            # RECORD TRAJECTORY TRACKING
+            # ==================================
 
+            if tracking is not None:
+
+                if (
+                    ii % const.TRACKING_INTERVAL == 0
+                    or ii == const.N - 1
+                ):
+
+                    actual_q = get_joint_angles()
+
+                    tracking.record(
+                        desired_q,
+                        actual_q
+                    )
 
             # ==================================
             # UPDATE VISUALIZATION
             # ==================================
 
             if visualizer is not None:
-
                 visualizer.update(ii)
 
 
@@ -454,7 +475,9 @@ def execute_trajectory(gripper_state, visualizer=None):
             # ==================================
 
             print(
-                f"Frame {ii + 1}/{kinematics.N} | "
+                f"Frame {ii + 1}/{const.N} | "
+                f"Desired Angles: {kinematics.q[:, ii]} | "
+                f"Actual Angles: {get_joint_angles()} | "
                 f"Time: {ii * dt:.2f}s"
             )
 
@@ -494,16 +517,11 @@ def execute_trajectory(gripper_state, visualizer=None):
         print("Controller finished.")
 
     
-
 # ==========================================
-# MAIN - CONTROLLER TEST
+# TEST CONFIGURATIONS
 # ==========================================
-
-if __name__ == "__main__":
-
-    # ==========================================
-    # TEST CONFIGURATIONS
-    # ==========================================
+    
+def test_config() :
 
     qstart = np.array(
         [90, 90, 90, 90, 90],
@@ -520,7 +538,7 @@ if __name__ == "__main__":
     print("==========================================")
 
     # Prevent accidental hardware movement
-    assert TEST, (
+    assert const.TEST, (
         "Controller tests require TEST = True."
     )
 
@@ -529,7 +547,7 @@ if __name__ == "__main__":
     # ==========================================
 
     simulated_q = qstart.copy()
-    simulated_gripper = GRIPPER_OPEN
+    simulated_gripper = const.GRIPPER_OPEN
 
     # ==========================================
     # TEST 1 - INITIAL ROBOT STATE
@@ -549,7 +567,7 @@ if __name__ == "__main__":
 
     assert np.isclose(
         actual_gripper,
-        GRIPPER_OPEN
+        const.GRIPPER_OPEN
     ), (
         f"Initial gripper angle incorrect: {actual_gripper}"
     )
@@ -565,7 +583,7 @@ if __name__ == "__main__":
 
     command_robot(
         qend,
-        GRIPPER_OPEN
+        const.GRIPPER_OPEN
     )
 
     actual_q = get_joint_angles()
@@ -649,7 +667,7 @@ if __name__ == "__main__":
     simulated_q = qstart.copy()
 
     execute_trajectory(
-        GRIPPER_OPEN
+        const.GRIPPER_OPEN
     )
 
     actual_q = get_joint_angles()
@@ -659,7 +677,7 @@ if __name__ == "__main__":
     )
 
     assert np.all(
-        joint_error <= JOINT_POSITION_TOL
+        joint_error <= const.JOINT_POSITION_TOL
     ), (
         f"Trajectory execution failed. "
         f"Joint errors: {joint_error}"
@@ -718,16 +736,16 @@ if __name__ == "__main__":
     print("\nTEST 7: Gripper close")
 
     command_gripper(
-        GRIPPER_CLOSED
+        const.GRIPPER_CLOSED
     )
 
     actual_gripper = get_gripper_angle()
 
     assert abs(
-        GRIPPER_CLOSED - actual_gripper
-    ) <= GRIPPER_POSITION_TOL, (
+        const.GRIPPER_CLOSED - actual_gripper
+    ) <= const.GRIPPER_POSITION_TOL, (
         f"Gripper failed to close. "
-        f"Expected: {GRIPPER_CLOSED}, "
+        f"Expected: {const.GRIPPER_CLOSED}, "
         f"Actual: {actual_gripper}"
     )
 
@@ -741,16 +759,16 @@ if __name__ == "__main__":
     print("\nTEST 8: Gripper open")
 
     command_gripper(
-        GRIPPER_OPEN
+        const.GRIPPER_OPEN
     )
 
     actual_gripper = get_gripper_angle()
 
     assert abs(
-        GRIPPER_OPEN - actual_gripper
-    ) <= GRIPPER_POSITION_TOL, (
+        const.GRIPPER_OPEN - actual_gripper
+    ) <= const.GRIPPER_POSITION_TOL, (
         f"Gripper failed to open. "
-        f"Expected: {GRIPPER_OPEN}, "
+        f"Expected: {const.GRIPPER_OPEN}, "
         f"Actual: {actual_gripper}"
     )
 
@@ -764,3 +782,11 @@ if __name__ == "__main__":
     print("\n==========================================")
     print("ALL CONTROLLER TESTS PASSED")
     print("==========================================")
+
+
+# ==========================================
+# MAIN - CONTROLLER TEST
+# ==========================================
+
+if __name__ == "__main__":
+    test_config()
