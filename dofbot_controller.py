@@ -28,7 +28,51 @@
 import numpy as np
 import time
 import dofbot_kinematics as kinematics
-import constants as const
+        
+
+# ==========================================
+# CONTROLLER SETTINGS
+# ==========================================
+
+# True if only simulating outputs 
+TEST = True
+
+# Total time for each movement (seconds)
+TOTAL_TIME = 10.0
+
+# Gripper constants
+GRIPPER_ID = 6
+
+GRIPPER_OPEN = 60
+GRIPPER_CLOSED = 130
+
+GRIPPER_WAIT = 1.5
+
+
+# ==========================================
+# SIMULATED ROBOT STATE
+# ==========================================
+
+simulated_q = np.array(
+    [90, 90, 90, 90, 90],
+    dtype=float
+)
+
+simulated_gripper = GRIPPER_OPEN
+
+
+# ==========================================
+# POSITION FEEDBACK SETTINGS
+# ==========================================
+
+GRIPPER_POSITION_TOL = 3.0       # Degrees
+GRIPPER_POSITION_TIMEOUT = 5.0   # Seconds
+GRIPPER_FEEDBACK_INTERVAL = 0.05
+
+JOINT_POSITION_TOL = 3.0      # Degrees
+JOINT_POSITION_TIMEOUT = 5.0  # Seconds
+JOINT_FEEDBACK_INTERVAL = 0.05
+
 
 # ==========================================
 # HARDWARE CONNECTION
