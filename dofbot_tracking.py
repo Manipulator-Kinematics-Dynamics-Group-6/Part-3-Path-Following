@@ -1,3 +1,5 @@
+# only needed if running with IPYNB files on Jupyter, comment out otherwise 
+# import import_ipynb 
 
 import time
 import warnings
